@@ -123,7 +123,7 @@ return function(deps)
     Theme.setColor(theme.night)
     love.graphics.rectangle("fill", info.x, info.y, info.w, info.h, 18)
     Theme.setColor(theme.accent)
-    love.graphics.rectangle("fill", info.x, info.y, 7, info.h, 18, 0, 0, 18)
+    love.graphics.rectangle("fill", info.x, info.y, 7, info.h)
 
     local pad = 24
     love.graphics.setFont(font(13))
@@ -163,7 +163,7 @@ return function(deps)
     local summary = trainerSummary(game)
     love.graphics.setFont(font(12))
     Theme.setColor(theme.muted)
-    local value = ("%s   •   %s   •   PARTY %d/6   •   ¥%d"):format(
+    local value = ("%s   -   %s   -   PARTY %d/6   -   ¥%d"):format(
       summary.name, summary.map:upper(), summary.party, summary.money)
     love.graphics.print(value, layout.x + 28, layout.y + 66)
   end
@@ -206,7 +206,7 @@ return function(deps)
       layout.w - 2, layout.h - 2, 20)
 
     Theme.setColor(theme.accent)
-    love.graphics.rectangle("fill", layout.x, layout.y, 8, layout.h, 20, 0, 0, 20)
+    love.graphics.rectangle("fill", layout.x, layout.y, 8, layout.h)
     love.graphics.rectangle("fill", layout.x + 24, layout.y + 17, 54, 4, 2)
 
     love.graphics.setFont(font(12))
@@ -324,8 +324,7 @@ return function(deps)
     love.graphics.rectangle("line", x, y, width, height, 16)
 
     Theme.setColor(theme.accent)
-    love.graphics.rectangle("fill", x, y, width, runtime.overlayRegion.headerH,
-      16, 16, 0, 0)
+    love.graphics.rectangle("fill", x, y, width, runtime.overlayRegion.headerH, 16, 16)
     love.graphics.setFont(font(math.max(12, math.floor(13 * scale))))
     Theme.setColor(theme.onAccent)
     love.graphics.print(runtime.editMode and "OVERLAY EDIT MODE" or "KANTO COMPANION",
@@ -343,8 +342,8 @@ return function(deps)
     love.graphics.print(("PARTY %d/6     ¥%d     %s"):format(
       summary.party, summary.money, summary.time), x + 17,
       y + runtime.overlayRegion.headerH + 70 * scale)
-    love.graphics.print(runtime.editMode and "DRAG THE RED HEADER • F9 TO LOCK"
-      or "F8 HIDE • F9 EDIT", x + 17,
+    love.graphics.print(runtime.editMode and "DRAG THE RED HEADER - F9 TO LOCK"
+      or "F8 HIDE - F9 EDIT", x + 17,
       y + runtime.overlayRegion.headerH + 99 * scale)
     love.graphics.pop()
     return true
@@ -354,7 +353,7 @@ return function(deps)
     if not enabled then return end
     local theme = Theme.get(profile.theme)
     local ok, state, reason = isSupportedStartMenu(game)
-    local label = ("KRS 0.0.4  •  HUD ACTIVE  •  %s  •  %s"):format(
+    local label = ("KRS 0.0.4  -  HUD ACTIVE  -  %s  -  %s"):format(
       ok and "START MENU DETECTED" or "NATIVE WORLD",
       text(reason or (state and state.screenId) or "unknown"))
     local f = font(11)
@@ -365,7 +364,7 @@ return function(deps)
     Theme.setColor(theme.night)
     love.graphics.rectangle("fill", x, y, width, 24, 7)
     Theme.setColor(ok and theme.accent or theme.nightMuted)
-    love.graphics.rectangle("fill", x, y, 5, 24, 7, 0, 0, 7)
+    love.graphics.rectangle("fill", x, y, 5, 24)
     love.graphics.setFont(f)
     Theme.setColor(theme.nightText)
     love.graphics.print(label, x + 14, y + 6)
