@@ -1,0 +1,18 @@
+{
+  "id": "kanto_rework_core",
+  "name": "Kanto Rework Core (P0)",
+  "version": "0.0.1",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "overhaul",
+  "category": "UI",
+  "priority": 120,
+  "game_version": ">=0.1.51 <2.0.0",
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "permissions": ["filesystem", "engine_internals"],
+  "experimental": true,
+  "affects_link": false,
+  "description": "P0 technical spike for adaptive UI, pointer/touch input, profile persistence, and safe native fallback."
+}
