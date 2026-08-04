@@ -13,6 +13,20 @@ return function(deps)
     return presenter.isSupportedStartMenu(game())
   end
 
+  -- Right-click is the global mouse equivalent of the Game Boy B button.
+  -- It must therefore work on every active UI state, including native
+  -- fallback screens that Kanto Rework has not presented yet. The only state
+  -- where it must not inject B is the ordinary overworld, where a stray click
+  -- should remain inert.
+  local function uiStateActive()
+    local current = game()
+    local stack = current and current.stack
+    local top = stack and type(stack.top) == "function" and stack:top() or nil
+    if not top then return false end
+    if current.overworld and top == current.overworld then return false end
+    return true, top
+  end
+
   local function updateHover(x, y)
     runtime.pointerX, runtime.pointerY = x, y
     runtime.hoveredItem = nil
@@ -174,7 +188,7 @@ return function(deps)
     if istouch then return false end
     runtime.lastInput = "mouse"
     local region = updateHover(x, y)
-    if button == 2 and supportedMenu() then
+    if button == 2 and uiStateActive() then
       mod.input:tap(game(), "b")
       return true
     end
