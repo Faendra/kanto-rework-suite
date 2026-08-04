@@ -105,7 +105,9 @@ local startMenu = setmetatable({
   clampScroll = function() end,
 }, { __index = menuClass })
 
+local overworld = { screenId = "Overworld" }
 local game = {
+  overworld = overworld,
   save = {
     player = { name = "RED", map = "CELADON_MART" },
     party = { {}, {}, {} },
@@ -118,7 +120,7 @@ local game = {
   },
   data = { maps = { CELADON_MART = { name = "CELADON MART" } } },
   stack = {
-    states = { startMenu },
+    states = { overworld, startMenu },
     top = function(self) return self.states[#self.states] end,
   },
 }
@@ -152,11 +154,24 @@ check(taps[#taps] == "a", "left click activates through mod.input")
 love.mousepressed(mouseX, mouseY, 2, false, 1)
 check(taps[#taps] == "b", "right click returns through mod.input")
 
--- Native fallback: unknown non-menu state must not clear the canvas.
-game.stack.states = { { screenId = "UnknownState" } }
+-- Native fallback: unknown non-menu state must not clear the canvas, but it
+-- is still an active UI state and therefore accepts the global mouse Back.
+local partyScreen = { screenId = "PartyMenu" }
+game.stack.states = { overworld, partyScreen }
 hooks["render.hud"](function() end, game, viewport)
 local before = clearCount
 hooks["render.compose"](function() return false end, {}, { uiCanvas = {} })
 check(clearCount == before, "unknown screen keeps native UI")
+local tapsBeforePartyBack = #taps
+love.mousepressed(10, 10, 2, false, 1)
+check(#taps == tapsBeforePartyBack + 1 and taps[#taps] == "b",
+  "right click backs out of a native fallback screen")
+
+-- Right-click must remain inert in the ordinary overworld.
+game.stack.states = { overworld }
+local tapsBeforeWorldClick = #taps
+love.mousepressed(10, 10, 2, false, 1)
+check(#taps == tapsBeforeWorldClick,
+  "right click does not inject B in the overworld")
 
 print("P0 runtime smoke passed")
