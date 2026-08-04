@@ -15,6 +15,10 @@ return function(deps)
     presenter = presenter,
   })
   runtime.nativePointer = native
+  runtime.pointerSessions = runtime.pointerSessions or {}
+  runtime.pointerHookSequence = runtime.pointerHookSequence or 0
+
+  local Pointer = {}
 
   local function game()
     return runtime.game
@@ -83,42 +87,207 @@ return function(deps)
     return true
   end
 
-  local function install()
+  local function pointerId(ev)
+    if ev and ev.id ~= nil then return ev.id end
+    return ev and ev.source == "touch" and "touch" or "mouse"
+  end
+
+  local function isPrimary(ev)
+    return ev.source == "touch" or ev.button == nil or ev.button == 1
+  end
+
+  local function movedTooFar(session, ev)
+    local dx = (ev.x or session.x) - session.x
+    local dy = (ev.y or session.y) - session.y
+    local threshold = session.source == "touch" and 18 or 12
+    return dx * dx + dy * dy > threshold * threshold
+  end
+
+  local function knownStructuredScreen()
+    local kind = native.kind()
+    return kind == "party" or kind == "list" or kind == "options"
+      or kind == "menu" or kind == "choice"
+  end
+
+  local function activatePrimary(x, y)
+    local region = updateHover(x, y)
+    if selectRow(region, true) then return true end
+    if native.activate(x, y) then return true end
+
+    -- A click in a known list/menu but outside one of its semantic rows must
+    -- not confirm the keyboard's old selection. Unknown states deliberately
+    -- fall through to native A: this covers the live overworld even when an
+    -- engine/mod wrapper means the top state is not identity-equal to the
+    -- exported OverworldController singleton, and also preserves ordinary
+    -- dialogue/cutscene advancement.
+    local startSupported = supportedMenu()
+    if startSupported or knownStructuredScreen() then return false end
+    if native.inGameViewport(x, y) and hasTopState() then
+      mod.input:tap(game(), "a")
+      return true
+    end
+    return false
+  end
+
+  function Pointer.handle(currentGame, ev)
+    if type(ev) ~= "table" then return false end
+    runtime.game = currentGame or runtime.game
+    local id = pointerId(ev)
+    local phase = ev.phase
+    local source = ev.source or "mouse"
+    runtime.lastInput = source == "touch" and "touch" or "mouse"
+
+    if phase == "moved" then
+      local region = updateHover(ev.x or 0, ev.y or 0)
+      local session = runtime.pointerSessions[id]
+      if session then
+        session.moved = session.moved or movedTooFar(session, ev)
+        if session.mode == "overlay" then dragTo(ev.x or 0, ev.y or 0) end
+        if session.mode == "primary" and not region then
+          native.hover(ev.x or 0, ev.y or 0)
+        end
+        return true
+      end
+      if not region then native.hover(ev.x or 0, ev.y or 0) end
+      return false
+    end
+
+    if phase == "cancelled" then
+      local session = runtime.pointerSessions[id]
+      runtime.pointerSessions[id] = nil
+      if session and session.mode == "overlay" then endDrag() end
+      return session ~= nil
+    end
+
+    if phase == "pressed" then
+      local x, y = ev.x or 0, ev.y or 0
+      local region = updateHover(x, y)
+
+      if region and region.kind == "overlay" then
+        local dragging = isPrimary(ev) and beginDrag(region, x, y)
+        runtime.pointerSessions[id] = {
+          mode = "overlay", source = source, x = x, y = y,
+          dragging = dragging == true,
+        }
+        return true
+      end
+
+      if ev.button == 2 and hasTopState() then
+        runtime.pointerSessions[id] = {
+          mode = "back", source = source, x = x, y = y,
+        }
+        return true
+      end
+
+      if isPrimary(ev) and (region ~= nil or native.inGameViewport(x, y)) then
+        runtime.pointerSessions[id] = {
+          mode = "primary", source = source, x = x, y = y,
+        }
+        if region then
+          selectRow(region, false)
+        else
+          native.hover(x, y)
+        end
+        return true
+      end
+      return false
+    end
+
+    if phase == "released" then
+      local session = runtime.pointerSessions[id]
+      runtime.pointerSessions[id] = nil
+      if not session then return false end
+
+      if session.mode == "overlay" then
+        if session.dragging then endDrag() end
+        return true
+      end
+
+      if session.mode == "back" then
+        mod.input:tap(game(), "b")
+        return true
+      end
+
+      if session.mode == "primary" then
+        if not session.moved and not movedTooFar(session, ev) then
+          activatePrimary(ev.x or session.x, ev.y or session.y)
+        end
+        return true
+      end
+      return false
+    end
+
+    return false
+  end
+
+  -- Official pointer seam added by bryanthaboi/gen1recomp issue #807.
+  -- The event is handled synchronously by Game:mouse*/touch* after virtual
+  -- touch controls get first refusal. Returning true consumes the lifecycle.
+  mod.hooks:wrap("input.pointer", function(next, currentGame, ev)
+    runtime.pointerHookSequence = runtime.pointerHookSequence + 1
+    if Pointer.handle(currentGame, ev) then return true end
+    return next(currentGame, ev)
+  end, 120)
+
+  local function installGlobalBridges()
     local global = runtime.global
     if global.pointerInstalled then return end
     global.pointerInstalled = true
     global.original = global.original or {}
 
+    -- Compatibility bridge for builds predating issue #807. The official
+    -- handler is called first. If that synchronously dispatched input.pointer,
+    -- pointerHookSequence changes and the fallback is skipped, so current
+    -- builds receive exactly one event rather than a hook plus a duplicate.
     global.original.mousepressed = love.mousepressed
     love.mousepressed = function(x, y, button, istouch, presses)
       local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.mousepressed
-          and r.handlers.mousepressed(x, y, button, istouch, presses) then
-        return
-      end
+      local before = r and r.pointerHookSequence or 0
       local original = r and r.global and r.global.original.mousepressed
-      if original then return original(x, y, button, istouch, presses) end
+      local result
+      if original then result = original(x, y, button, istouch, presses) end
+      if r and r.pointerHookSequence == before and not istouch
+          and r.pointer and r.pointer.handle then
+        r.pointer.handle(r.game, {
+          phase = "pressed", source = "mouse", id = "mouse",
+          x = x, y = y, dx = 0, dy = 0, button = button,
+        })
+      end
+      return result
     end
 
     global.original.mousereleased = love.mousereleased
     love.mousereleased = function(x, y, button, istouch, presses)
       local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.mousereleased
-          and r.handlers.mousereleased(x, y, button, istouch, presses) then
-        return
-      end
+      local before = r and r.pointerHookSequence or 0
       local original = r and r.global and r.global.original.mousereleased
-      if original then return original(x, y, button, istouch, presses) end
+      local result
+      if original then result = original(x, y, button, istouch, presses) end
+      if r and r.pointerHookSequence == before and not istouch
+          and r.pointer and r.pointer.handle then
+        r.pointer.handle(r.game, {
+          phase = "released", source = "mouse", id = "mouse",
+          x = x, y = y, dx = 0, dy = 0, button = button,
+        })
+      end
+      return result
     end
 
     global.original.mousemoved = love.mousemoved
     love.mousemoved = function(x, y, dx, dy, istouch)
       local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.mousemoved then
-        r.handlers.mousemoved(x, y, dx, dy, istouch)
-      end
+      local before = r and r.pointerHookSequence or 0
       local original = r and r.global and r.global.original.mousemoved
-      if original then return original(x, y, dx, dy, istouch) end
+      local result
+      if original then result = original(x, y, dx, dy, istouch) end
+      if r and r.pointerHookSequence == before and not istouch
+          and r.pointer and r.pointer.handle then
+        r.pointer.handle(r.game, {
+          phase = "moved", source = "mouse", id = "mouse",
+          x = x, y = y, dx = dx or 0, dy = dy or 0,
+        })
+      end
+      return result
     end
 
     global.original.wheelmoved = love.wheelmoved
@@ -130,38 +299,6 @@ return function(deps)
       end
       local original = r and r.global and r.global.original.wheelmoved
       if original then return original(dx, dy) end
-    end
-
-    global.original.touchpressed = love.touchpressed
-    love.touchpressed = function(id, x, y, dx, dy, pressure)
-      local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.touchpressed
-          and r.handlers.touchpressed(id, x, y, dx, dy, pressure) then
-        return
-      end
-      local original = r and r.global and r.global.original.touchpressed
-      if original then return original(id, x, y, dx, dy, pressure) end
-    end
-
-    global.original.touchmoved = love.touchmoved
-    love.touchmoved = function(id, x, y, dx, dy, pressure)
-      local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.touchmoved then
-        r.handlers.touchmoved(id, x, y, dx, dy, pressure)
-      end
-      local original = r and r.global and r.global.original.touchmoved
-      if original then return original(id, x, y, dx, dy, pressure) end
-    end
-
-    global.original.touchreleased = love.touchreleased
-    love.touchreleased = function(id, x, y, dx, dy, pressure)
-      local r = _G.__KANTO_REWORK_CORE_P0
-      if r and r.handlers and r.handlers.touchreleased
-          and r.handlers.touchreleased(id, x, y, dx, dy, pressure) then
-        return
-      end
-      local original = r and r.global and r.global.original.touchreleased
-      if original then return original(id, x, y, dx, dy, pressure) end
     end
 
     global.original.keypressed = love.keypressed
@@ -187,55 +324,6 @@ return function(deps)
   end
 
   runtime.handlers = runtime.handlers or {}
-  runtime.handlers.mousepressed = function(x, y, button, istouch)
-    if istouch then return false end
-    runtime.lastInput = "mouse"
-    local region = updateHover(x, y)
-
-    -- The companion overlay owns its rectangle. Even while locked, pointer
-    -- presses on it must never interact with an NPC or menu underneath.
-    if region and region.kind == "overlay" then
-      if button == 1 and beginDrag(region, x, y) then return true end
-      return true
-    end
-
-    -- Right click is the global B/Cancel action, including the overworld.
-    -- ChoiceBox already maps B to NO, so dialogue choices retain native
-    -- behavior rather than receiving a custom callback path.
-    if button == 2 and hasTopState() then
-      if not native.isOverworld() or native.inGameViewport(x, y) then
-        mod.input:tap(game(), "b")
-        return true
-      end
-      return false
-    end
-
-    if button ~= 1 then return false end
-    if beginDrag(region, x, y) then return true end
-    if selectRow(region, true) then return true end
-    if native.activate(x, y) then return true end
-
-    -- In the live overworld, left click is the native A action: talk to the
-    -- facing NPC, inspect a sign/object, or trigger any ordinary interaction.
-    if native.isOverworld() and native.inGameViewport(x, y) then
-      mod.input:tap(game(), "a")
-      return true
-    end
-    return false
-  end
-
-  runtime.handlers.mousereleased = function(_, _, button)
-    if button == 1 then return endDrag() end
-    return false
-  end
-
-  runtime.handlers.mousemoved = function(x, y)
-    runtime.lastInput = "mouse"
-    local region = updateHover(x, y)
-    if not region then native.hover(x, y) end
-    dragTo(x, y)
-  end
-
   runtime.handlers.wheelmoved = function(_, dy)
     runtime.lastInput = "mouse"
     local x, y = love.mouse.getPosition()
@@ -249,32 +337,6 @@ return function(deps)
     end
     if region and region.kind == "overlay" then return true end
     return native.wheel(dy)
-  end
-
-  runtime.handlers.touchpressed = function(id, x, y)
-    runtime.lastInput = "touch"
-    runtime.touchId = id
-    local region = updateHover(x, y)
-    if region and region.kind == "overlay" then
-      if beginDrag(region, x, y) then return true end
-      return true
-    end
-    if selectRow(region, true) then return true end
-    return native.activate(x, y)
-  end
-
-  runtime.handlers.touchmoved = function(id, x, y)
-    if runtime.touchId ~= id then return end
-    runtime.lastInput = "touch"
-    local region = updateHover(x, y)
-    if not region then native.hover(x, y) end
-    dragTo(x, y)
-  end
-
-  runtime.handlers.touchreleased = function(id)
-    if runtime.touchId ~= id then return false end
-    runtime.touchId = nil
-    return endDrag()
   end
 
   runtime.handlers.keypressed = function(key)
@@ -300,5 +362,7 @@ return function(deps)
     runtime.lastInput = "controller"
   end
 
-  install()
+  runtime.pointer = Pointer
+  installGlobalBridges()
+  return Pointer
 end
