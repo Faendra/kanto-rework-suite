@@ -112,7 +112,7 @@ local game = {
 }
 local viewport = {
   width = 1920, height = 1080,
-  gameX = 200, gameY = 0, gameWidth = 1200, gameHeight = 1080,
+  gameX = 600, gameY = 0, gameWidth = 1200, gameHeight = 1080,
 }
 local function windowPoint(ux, uy)
   return viewport.gameX + ux / 160 * viewport.gameWidth,
