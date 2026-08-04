@@ -36,6 +36,7 @@ def main() -> None:
         "core/profile.lua",
         "core/presenter.lua",
         "core/pointer.lua",
+        "core/native_pointer.lua",
     ):
         if not (PACKAGE / relative).is_file():
             fail(f"missing package file: {relative}")
