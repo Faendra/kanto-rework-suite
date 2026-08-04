@@ -1,6 +1,6 @@
-# Kanto Rework Core — P0.0.7
+# Kanto Rework Core — P0.0.8
 
-This is a focused runtime-validation build for the official Gen1Recomp release.
+This is a focused runtime-validation build for the official Gen1Recomp line.
 It is not the complete Kanto Rework Suite.
 
 ## Included in this test
@@ -9,7 +9,8 @@ It is not the complete Kanto Rework Suite.
 - a high-resolution replacement for the released Start menu;
 - semantic Start-menu detection that does not depend on `screenId` being present;
 - the released `render.zones` → `render.compose` → `render.hud` ownership model;
-- safe fallback: the native menu stays visible until the replacement has drawn successfully;
+- the official `input.pointer` middleware introduced by Gen1Recomp issue #807;
+- a non-duplicating compatibility bridge for older builds without that hook;
 - Field Journal and Graphite themes;
 - a movable companion card outside the menu;
 - semantic mouse support for native Start, Party, Bag/List, Pokédex, Options,
@@ -29,19 +30,31 @@ It is not the complete Kanto Rework Suite.
 - mouse wheel: navigate supported lists and choices;
 - drag the red overlay header while edit mode is active.
 
+## Pointer behavior
+
+Current Gen1Recomp builds deliver uncaptured mouse and touch lifecycles through
+`input.pointer`. Kanto Rework consumes a pointer from press through release,
+updates the real native selection, and injects `A` or `B` only on release.
+This avoids missed short clicks, duplicated mobile touch/mouse events, and
+interference with the virtual touch controls.
+
+The legacy LÖVE callback bridge calls the engine handler first. It falls back
+only when no `input.pointer` event was emitted synchronously, so a current build
+never receives both the official event and a duplicate compatibility event.
+
 ## Pointer safety
 
-- clicks outside the native game viewport do not trigger overworld actions;
+- left click outside the native game viewport does not trigger overworld `A`;
+- blank space in a known structured menu does not confirm the previous row;
 - the companion overlay consumes pointer events so it cannot click through to
   an NPC, object, dialogue, or menu underneath;
-- every activation is routed through `mod.input:tap`, preserving the native
-  screen's own sounds, callbacks, stack changes, and mod hooks.
+- a cancelled touch/mouse lifecycle never activates;
+- every activation is routed through `mod.input:tap`, preserving native sounds,
+  callbacks, stack changes, validation, and other mod hooks.
 
 ## Deliberate limits
 
 - only the Start menu and P0 companion card are visually replaced in this archive;
 - Party, Bag, Pokédex, dialogue and battle still use their native visuals;
-- mouse support wraps the released LÖVE callbacks because official v0.1.69 does
-  not expose a universal public `input.pointer` hook;
 - the GitHub repository is private, so Gen1Recomp cannot perform unauthenticated
   auto-update checks until releases are mirrored to a public repository.
