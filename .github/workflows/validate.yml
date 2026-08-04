@@ -34,12 +34,13 @@ jobs:
           python - <<'PY'
           import json, pathlib, zipfile
           archive = next(pathlib.Path('dist').glob('kanto_rework_core-*.zip'))
+          expected_version = archive.stem.removeprefix('kanto_rework_core-')
           with zipfile.ZipFile(archive) as z:
               names = z.namelist()
               assert 'manifest.json' in names, names
               assert not any(name.startswith('kanto_rework_core/') for name in names), names
               manifest = json.loads(z.read('manifest.json'))
-              assert manifest['version'] == '0.0.4', manifest
+              assert manifest['version'] == expected_version, manifest
           print(f'validated {archive}')
           PY
       - name: Upload directly importable package
