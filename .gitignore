@@ -1,0 +1,31 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local tooling
+node_modules/
+__pycache__/
+*.pyc
+.env
+.env.*
+
+# LÖVE / Lua artifacts
+*.love
+*.zip
+*.log
+luac.out
+
+# Local game and ROM-derived data
+roms/
+cache/
+generated/
+assets/generated/
+data/generated/
+saves/
+
+# Test output
+coverage/
+test-output/
+screenshots/generated/
