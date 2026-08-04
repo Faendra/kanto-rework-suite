@@ -2,7 +2,7 @@
 --
 -- The adapters never call private callbacks directly. They translate a
 -- window-space pointer target into the 160x144 native UI canvas, update the
--- real screen selection, then inject the ordinary Game Boy A action through
+-- real screen selection, then inject the ordinary Game Boy action through
 -- mod.input. This preserves the screen's own sounds, stack transitions,
 -- callbacks, mod hooks, and validation rules.
 return function(deps)
@@ -39,9 +39,13 @@ return function(deps)
     return (x - gx) * 160 / gw, (y - gy) * 144 / gh
   end
 
-  local function tapA()
-    mod.input:tap(game(), "a")
+  local function tap(button)
+    mod.input:tap(game(), button)
     return true
+  end
+
+  local function tapA()
+    return tap("a")
   end
 
   local function clampIndex(state, value, count)
@@ -197,6 +201,22 @@ return function(deps)
     return nil
   end
 
+  -- The in-game mod manager is intentionally not a Menu/ListMenu subclass.
+  -- It owns several screens behind one ManagerState and routes mapped input
+  -- itself, including header skipping, tab-specific rows, option scrolling,
+  -- and modal confirms. Wheel navigation must therefore inject the same
+  -- source-safe Up/Down edge as a keyboard or controller instead of mutating
+  -- its private cursor fields from this compatibility layer.
+  local function looksLikeModManager(state)
+    return type(state) == "table"
+      and (state.screenId == "ManagerState"
+        or (type(state.screen) == "string"
+          and type(state.cursor) == "number"
+          and type(state.scroll) == "number"
+          and type(state.backStack) == "table"
+          and type(state.rowsForScreen) == "function"))
+  end
+
   local function targetAt(state, ux, uy)
     if looksLikeParty(state) then return partyTarget(state, ux, uy) end
     if looksLikeList(state) then return listTarget(state, ux, uy) end
@@ -265,7 +285,9 @@ return function(deps)
     if supported then return false end
 
     local delta = dy > 0 and -1 or 1
-    if looksLikeParty(state) then
+    if looksLikeModManager(state) then
+      return tap(delta < 0 and "up" or "down")
+    elseif looksLikeParty(state) then
       if state.submenu and type(state.subItems) == "table" and #state.subItems > 0 then
         local n = #state.subItems
         state.subIndex = ((state.subIndex or 1) - 1 + delta) % n + 1
@@ -303,6 +325,7 @@ return function(deps)
   function Native.kind()
     local state = topState()
     if isOverworld(state) then return "overworld" end
+    if looksLikeModManager(state) then return "mod_manager" end
     if looksLikeParty(state) then return "party" end
     if looksLikeList(state) then return "list" end
     if looksLikeOptionRows(state) then return "options" end
