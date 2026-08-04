@@ -19,8 +19,11 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y lua5.4
-      - name: Run released Start-menu smoke test
-        run: lua5.4 tests/p0_runtime_smoke.lua packages/kanto_rework_core
+      - name: Run P0 runtime smoke tests
+        run: |
+          lua5.4 tests/p0_runtime_smoke.lua packages/kanto_rework_core
+          lua5.4 tests/p0_manager_wheel_smoke.lua packages/kanto_rework_core
+          lua5.4 tests/p0_battle_pointer_smoke.lua packages/kanto_rework_core
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
