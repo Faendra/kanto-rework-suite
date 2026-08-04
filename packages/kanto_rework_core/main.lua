@@ -32,6 +32,9 @@ return function(mod)
   global.startMenu = nil
   global.overlayRegion = nil
   global.viewport = global.viewport or { width = 1920, height = 1080 }
+  global.presenterReady = false
+  global.presenterError = nil
+  global.loggedPresenterError = nil
 
   local profileStore = createProfileStore({
     path = "kanto_rework/profiles/p0_default.lua",
@@ -71,6 +74,37 @@ return function(mod)
     persist = persist,
   })
 
+  local function logPresenterError(err)
+    local text = tostring(err)
+    global.presenterError = text
+    if global.loggedPresenterError ~= text then
+      global.loggedPresenterError = text
+      mod.log:error("presenter failed; native UI restored: %s", text)
+    end
+  end
+
+  local function drawEmergencyNotice(viewport, message)
+    if not (love and love.graphics and viewport) then return end
+    local width = tonumber(viewport.width) or 640
+    local height = tonumber(viewport.height) or 360
+    local boxW = math.min(680, math.max(300, width - 48))
+    local boxH = 112
+    local x = (width - boxW) / 2
+    local y = math.max(24, height - boxH - 24)
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setColor(0.10, 0.04, 0.05, 0.96)
+    love.graphics.rectangle("fill", x, y, boxW, boxH, 12)
+    love.graphics.setColor(0.95, 0.28, 0.28, 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, boxW, boxH, 12)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.print("Kanto Rework presenter error — native UI restored", x + 18, y + 16)
+    love.graphics.setColor(0.88, 0.82, 0.82, 1)
+    love.graphics.printf(tostring(message), x + 18, y + 46, boxW - 36, "left")
+    love.graphics.pop()
+  end
+
   mod.events:on("game.ready", function(payload)
     global.game = payload and payload.game or global.game
   end)
@@ -96,13 +130,17 @@ return function(mod)
     return next(game, zones)
   end, 120)
 
+  -- Never remove the native Start menu until the high-resolution presenter
+  -- completed successfully on the preceding frame. This prevents an invisible
+  -- input-owning menu if the HUD hook is absent or a draw error occurs.
   mod.hooks:wrap("render.compose", function(next, renderer, ctx)
     local handled = next(renderer, ctx)
     if handled == true or mod.options:get("replace_start_menu") == false then
       return handled
     end
     local supported = presenter.isSupportedStartMenu(global.game)
-    if supported and love and love.graphics and ctx and ctx.uiCanvas then
+    if supported and global.presenterReady
+        and love and love.graphics and ctx and ctx.uiCanvas then
       love.graphics.push("all")
       love.graphics.setCanvas(ctx.uiCanvas)
       love.graphics.clear(0, 0, 0, 0)
@@ -114,19 +152,37 @@ return function(mod)
   mod.hooks:wrap("render.hud", function(next, game, viewport)
     global.game = game
     next(game, viewport)
-    if not (love and love.graphics and viewport) then return end
+    if not (love and love.graphics and viewport) then
+      global.presenterReady = false
+      return
+    end
     global.viewport = viewport
     global.startMenu = nil
     global.overlayRegion = nil
+    global.presenterReady = false
+    global.presenterError = nil
+
     if mod.options:get("replace_start_menu") ~= false then
-      presenter.drawStartMenu(game, viewport, global.profile)
+      local ok, drawn = pcall(presenter.drawStartMenu,
+        game, viewport, global.profile)
+      if ok then
+        global.presenterReady = drawn == true
+      else
+        logPresenterError(drawn)
+        drawEmergencyNotice(viewport, drawn)
+      end
     end
+
     if mod.options:get("overlay") ~= false then
-      presenter.drawOverlay(viewport, global.profile)
+      local ok, err = pcall(presenter.drawOverlay, viewport, global.profile)
+      if not ok then
+        logPresenterError(err)
+        drawEmergencyNotice(viewport, err)
+      end
     end
   end, 120)
 
-  mod.exports.version = 1
+  mod.exports.version = 2
   mod.exports.layoutClass = function(width, height)
     return Layout.classify(width, height)
   end
@@ -139,7 +195,14 @@ return function(mod)
       widgetY = global.profile.widgetY,
     }
   end
+  mod.exports.diagnostics = function()
+    return {
+      presenterReady = global.presenterReady,
+      presenterError = global.presenterError,
+      viewport = global.viewport,
+    }
+  end
   mod.exports.isPointerExperimental = true
 
-  mod.log:info("P0 core loaded: F8 overlay, F9 edit overlay, mouse/touch start-menu presenter")
+  mod.log:info("P0 core loaded: safe fallback enabled; F8 overlay, F9 edit overlay")
 end
