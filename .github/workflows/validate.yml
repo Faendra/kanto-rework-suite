@@ -1,0 +1,23 @@
+name: Validate P0 package
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python tools/validate_package.py
+      - run: python -m pytest -q
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx --yes luaparse -q packages/kanto_rework_core/main.lua
+      - run: |
+          find packages/kanto_rework_core/core -name '*.lua' -print0 \
+            | xargs -0 -n1 npx --yes luaparse -q
