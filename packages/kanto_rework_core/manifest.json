@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_core",
   "name": "Kanto Rework Core (P0)",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -11,9 +11,9 @@
   "github": "Faendra/kanto-rework-suite",
   "dependencies": [],
   "optional_dependencies": [],
-  "conflicts": [],
+  "conflicts": ["gen1_modern_ui"],
   "permissions": ["filesystem", "engine_internals"],
   "experimental": true,
   "affects_link": false,
-  "description": "P0 technical spike for adaptive UI, pointer/touch input, profile persistence, and fail-safe native fallback."
+  "description": "P0.0.4 runtime test: Field Journal Start menu, companion overlay, mouse/touch navigation, safe native fallback."
 }
