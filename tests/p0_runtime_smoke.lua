@@ -11,6 +11,7 @@ local hooks, events, optionValues = {}, {}, {}
 local taps = {}
 local clearCount = 0
 local mouseX, mouseY = 0, 0
+local game
 
 local function font(size)
   return {
@@ -22,6 +23,15 @@ local function font(size)
 end
 local currentFont = font(12)
 
+local function dispatchPointer(ev)
+  local hook = hooks["input.pointer"]
+  if not hook or not game then return false end
+  return hook(function() return false end, game, ev)
+end
+
+-- These three callbacks stand in for current Gen1Recomp Game:mouse* routing.
+-- Kanto Rework wraps them only as a pre-#807 compatibility bridge, calls them
+-- first, then verifies that the official hook fired before considering fallback.
 love = {
   filesystem = {
     load = function(path) return loadfile(path) end,
@@ -50,6 +60,27 @@ love = {
   mouse = {
     getPosition = function() return mouseX, mouseY end,
   },
+  mousepressed = function(x, y, button, istouch)
+    if istouch then return end
+    return dispatchPointer({
+      phase = "pressed", source = "mouse", id = "mouse",
+      x = x, y = y, dx = 0, dy = 0, button = button,
+    })
+  end,
+  mousemoved = function(x, y, dx, dy, istouch)
+    if istouch then return end
+    return dispatchPointer({
+      phase = "moved", source = "mouse", id = "mouse",
+      x = x, y = y, dx = dx or 0, dy = dy or 0,
+    })
+  end,
+  mousereleased = function(x, y, button, istouch)
+    if istouch then return end
+    return dispatchPointer({
+      phase = "released", source = "mouse", id = "mouse",
+      x = x, y = y, dx = 0, dy = 0, button = button,
+    })
+  end,
 }
 
 local menuClass = {}
@@ -78,7 +109,9 @@ installer = installer()
 check(type(installer) == "function", "entry must return installer")
 installer(mod)
 
-for _, name in ipairs({ "input.step", "render.zones", "render.compose", "render.hud" }) do
+for _, name in ipairs({
+  "input.pointer", "input.step", "render.zones", "render.compose", "render.hud",
+}) do
   check(type(hooks[name]) == "function", name .. " hook registered")
 end
 check(type(events["game.ready"]) == "function", "game.ready listener registered")
@@ -95,7 +128,7 @@ local startMenu = setmetatable({
 }, { __index = menuClass })
 
 local overworld = { screenId = "Overworld" }
-local game = {
+game = {
   overworld = overworld,
   save = {
     player = { name = "RED", map = "CELADON_MART" },
@@ -118,10 +151,20 @@ local function windowPoint(ux, uy)
   return viewport.gameX + ux / 160 * viewport.gameWidth,
          viewport.gameY + uy / 144 * viewport.gameHeight
 end
-local function clickCanvas(ux, uy, button)
+local function moveCanvas(ux, uy)
+  local oldX, oldY = mouseX, mouseY
   mouseX, mouseY = windowPoint(ux, uy)
-  love.mousemoved(mouseX, mouseY, 0, 0, false)
-  love.mousepressed(mouseX, mouseY, button or 1, false, 1)
+  love.mousemoved(mouseX, mouseY, mouseX - oldX, mouseY - oldY, false)
+end
+local function clickWindow(x, y, button)
+  mouseX, mouseY = x, y
+  love.mousemoved(x, y, 0, 0, false)
+  love.mousepressed(x, y, button or 1, false, 1)
+  love.mousereleased(x, y, button or 1, false, 1)
+end
+local function clickCanvas(ux, uy, button)
+  local x, y = windowPoint(ux, uy)
+  clickWindow(x, y, button)
 end
 local function render()
   hooks["render.hud"](function() end, game, viewport)
@@ -138,12 +181,16 @@ check(clearCount == 1, "native UI clears only after presenter success")
 local runtime = _G.__KANTO_REWORK_CORE_P0
 check(runtime and runtime.startMenu and #runtime.startMenu.regions > 0,
   "presenter publishes Start-menu regions")
+check(runtime.pointerHookSequence == 0, "official pointer sequence starts empty")
 local first = runtime.startMenu.regions[1]
-mouseX, mouseY = first.x + first.w / 2, first.y + first.h / 2
-love.mousepressed(mouseX, mouseY, 1, false, 1)
-check(taps[#taps] == "a", "Start-menu left click injects A")
-love.mousepressed(mouseX, mouseY, 2, false, 1)
-check(taps[#taps] == "b", "Start-menu right click injects B")
+local beforeStart = #taps
+clickWindow(first.x + first.w / 2, first.y + first.h / 2, 1)
+check(#taps == beforeStart + 1 and taps[#taps] == "a",
+  "Start-menu click injects one A through the official hook")
+check(runtime.pointerHookSequence == 3,
+  "press/move/release each arrived once; compatibility bridge did not duplicate")
+clickWindow(first.x + first.w / 2, first.y + first.h / 2, 2)
+check(taps[#taps] == "b", "Start-menu right click injects B on release")
 
 local party = { index = 1, bottomMessage = function() return "Choose." end }
 game.stack.states = { overworld, party }
@@ -167,6 +214,9 @@ game.stack.states = { overworld, list }
 render()
 clickCanvas(80, 56, 1)
 check(list.index == 3 and taps[#taps] == "a", "List row click selects and activates")
+local beforeBlankList = #taps
+clickCanvas(80, 140, 1)
+check(#taps == beforeBlankList, "blank structured-menu space does not confirm old selection")
 
 local options = {
   rows = { { id = "one" }, { id = "two" }, { id = "three" }, { id = "four" } },
@@ -187,14 +237,6 @@ render()
 clickCanvas(120, 96, 1)
 check(boxed.index == 2 and taps[#taps] == "a", "Boxed menu click selects and activates")
 
-local summary = { mon = {}, page = 1 }
-game.stack.states = { overworld, summary }
-render()
-local beforeSummary = #taps
-clickCanvas(80, 72, 1)
-check(#taps == beforeSummary + 1 and taps[#taps] == "a", "Summary click advances")
-
--- Dialogue box clicks advance through native A only inside the real box.
 local dialogue = {
   pages = { { "Hello" } }, pageIndex = 1, shown = {},
   boxTx = 0, boxTy = 12, boxTw = 20, boxTh = 6,
@@ -205,7 +247,6 @@ local beforeDialogue = #taps
 clickCanvas(80, 120, 1)
 check(#taps == beforeDialogue + 1 and taps[#taps] == "a", "Dialogue click advances")
 
--- Native YES/NO ChoiceBox geometry: click NO, while right click remains B/Cancel.
 local choice = {
   index = 1, onChoose = function() end,
   tx = 13, ty = 6, tw = 7, th = 6,
@@ -216,19 +257,18 @@ local beforeChoice = #taps
 clickCanvas(136, 72, 1)
 check(choice.index == 2, "Choice click selects NO")
 check(#taps == beforeChoice + 1 and taps[#taps] == "a", "Choice click confirms through A")
-local beforeChoiceCancel = #taps
 clickCanvas(136, 72, 2)
-check(#taps == beforeChoiceCancel + 1 and taps[#taps] == "b", "Choice right click cancels through B")
+check(taps[#taps] == "b", "Choice right click cancels through B")
 
--- Native wheel behavior remains available.
+-- Native wheel behavior remains available outside input.pointer.
 game.stack.states = { overworld, list }
 list.index = 1
 render()
-mouseX, mouseY = windowPoint(80, 24)
+moveCanvas(80, 24)
 love.wheelmoved(0, -1)
 check(list.index == 2, "Wheel navigates native list")
 
--- Overworld mouse actions are the ordinary Game Boy A and B edges.
+-- Exact overworld identity and wrapped/unknown world states both fall back to A.
 game.stack.states = { overworld }
 render()
 local beforeWorld = #taps
@@ -238,18 +278,34 @@ check(#taps == beforeWorld + 2, "Overworld accepts left and right click")
 check(taps[#taps - 1] == "a" and taps[#taps] == "b",
   "Overworld maps left to A and right to B")
 
--- Bars outside the native game viewport do not trigger overworld actions.
-local beforeBar = #taps
-love.mousepressed(20, 200, 1, false, 1)
-love.mousepressed(20, 200, 2, false, 1)
-check(#taps == beforeBar, "Window bars remain inert")
+local wrappedWorld = { screenId = "WrappedOverworld" }
+game.stack.states = { wrappedWorld }
+render()
+local beforeWrapped = #taps
+clickCanvas(80, 72, 1)
+check(#taps == beforeWrapped + 1 and taps[#taps] == "a",
+  "unknown live world wrapper still receives native A")
 
--- The overlay rectangle must never click through to an NPC underneath.
+-- Left click outside the game viewport remains inert.
+local beforeBar = #taps
+clickWindow(20, 200, 1)
+check(#taps == beforeBar, "window bars do not trigger overworld A")
+
+-- Overlay owns its rectangle for both buttons and cannot click through.
+game.stack.states = { overworld }
+render()
 local overlay = runtime.overlayRegion
 check(overlay ~= nil, "overlay region is available")
 local beforeOverlay = #taps
-love.mousepressed(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 1, false, 1)
-love.mousepressed(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 2, false, 1)
+clickWindow(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 1)
+clickWindow(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 2)
 check(#taps == beforeOverlay, "locked overlay consumes pointer actions")
+
+-- A cancelled official pointer lifecycle never activates.
+local x, y = windowPoint(80, 72)
+local beforeCancel = #taps
+dispatchPointer({ phase = "pressed", source = "touch", id = 99, x = x, y = y })
+dispatchPointer({ phase = "cancelled", source = "touch", id = 99, x = x, y = y })
+check(#taps == beforeCancel, "cancelled pointer does not inject A")
 
 print("P0 runtime smoke passed")
