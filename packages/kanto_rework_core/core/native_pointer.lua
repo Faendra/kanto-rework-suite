@@ -1,10 +1,10 @@
 -- Semantic pointer adapters for the official Gen1Recomp native UI.
 --
 -- The adapters never call private callbacks directly. They translate a
--- window-space pointer target into the 160x144 native UI canvas, update the
--- real screen selection, then inject the ordinary Game Boy action through
--- mod.input. This preserves the screen's own sounds, stack transitions,
--- callbacks, mod hooks, and validation rules.
+-- window-space pointer target into the active native UI surface, update the
+-- real screen selection, then inject an ordinary Game Boy action through
+-- mod.input. This preserves native sounds, transitions, callbacks, validation
+-- and other mod hooks.
 return function(deps)
   local mod = assert(deps.mod)
   local runtime = assert(deps.runtime)
@@ -24,10 +24,98 @@ return function(deps)
 
   local function isOverworld(state)
     local current = game()
-    return state ~= nil and current and current.overworld and state == current.overworld
+    return state ~= nil and current and current.overworld
+      and state == current.overworld
   end
 
-  local function windowToCanvas(x, y)
+  local function isBattleShape(state)
+    return type(state) == "table"
+      and type(state.phase) == "string"
+      and type(state.menuIndex) == "number"
+      and type(state.moveIndex) == "number"
+      and state.player ~= nil and state.enemy ~= nil
+  end
+
+  local function surfaceSize(viewport)
+    local gw = tonumber(viewport and viewport.gameWidth)
+      or tonumber(viewport and viewport.width) or 0
+    local gh = tonumber(viewport and viewport.gameHeight)
+      or tonumber(viewport and viewport.height) or 0
+    local scale = tonumber(viewport and viewport.scale)
+    local dpiX = tonumber(viewport and viewport.dpiX) or 1
+    local dpiY = tonumber(viewport and viewport.dpiY) or 1
+    if scale and scale > 0 and gw > 0 and gh > 0 then
+      local w = math.floor(gw * dpiX / scale + 0.5)
+      local h = math.floor(gh * dpiY / scale + 0.5)
+      if w >= 160 and h >= 144 and w <= 640 and h <= 576 then
+        return w, h
+      end
+    end
+    return 160, 144
+  end
+
+  -- Reverse Renderer:setUIAnchor for the anchored element currently on top.
+  -- This matters for DYNAMIC UI layout: a ChoiceBox/TextBox may be drawn near
+  -- the window edge rather than at its source location in the 160x144 canvas.
+  local function anchoredCanvasPoint(state, x, y)
+    if type(state) ~= "table" or not state.anchor then return nil end
+    local current = game()
+    local renderer = current and current.renderer
+    local viewport = runtime.viewport
+    if not renderer or not viewport or renderer.uiCentered
+        or renderer.uiAnchorHold then return nil end
+    if type(renderer.uiScale) ~= "function" then return nil end
+
+    local okScale, up = pcall(renderer.uiScale, renderer)
+    if not okScale or type(up) ~= "number" or up <= 0 then return nil end
+    local uiw, uih = 160, 144
+    if type(renderer.uiSize) == "function" then
+      local okSize, w, h = pcall(renderer.uiSize, renderer)
+      if okSize and type(w) == "number" and type(h) == "number" then
+        uiw, uih = w, h
+      end
+    end
+
+    local tx, ty = tonumber(state.tx), tonumber(state.ty)
+    local tw, th = tonumber(state.tw), tonumber(state.th)
+    if not (tx and ty and tw and th) then
+      tx, ty = tonumber(state.boxTx), tonumber(state.boxTy)
+      tw, th = tonumber(state.boxTw), tonumber(state.boxTh)
+    end
+    if not (tx and ty and tw and th) then return nil end
+
+    local dpiX = tonumber(viewport.dpiX) or 1
+    local dpiY = tonumber(viewport.dpiY) or 1
+    local Ux, Uy = up / dpiX, up / dpiY
+    local ww = tonumber(viewport.width) or 0
+    local wh = tonumber(viewport.height) or 0
+    if ww <= 0 or wh <= 0 then return nil end
+    local pw, ph = ww * dpiX, wh * dpiY
+    local uox = math.floor((pw - uiw * up) / 2) / dpiX
+    local uoy = math.floor((ph - uih * up) / 2) / dpiY
+
+    local sx, sy, sw, sh = tx * 8, ty * 8, tw * 8, th * 8
+    local dw, dh = sw * Ux, sh * Uy
+    local gapR = (uiw - (sx + sw)) * Ux
+    local gapB = (uih - (sy + sh)) * Uy
+    local dx, dy
+    if state.anchor == "bottom" then
+      dx = uox + sx * Ux
+      dy = wh - gapB - dh
+    elseif state.anchor == "topright" then
+      dx = ww - gapR - dw
+      dy = sy * Uy
+    else
+      dx, dy = uox + sx * Ux, uoy + sy * Uy
+    end
+    if x < dx or y < dy or x > dx + dw or y > dy + dh then return nil end
+    return sx + (x - dx) / Ux, sy + (y - dy) / Uy
+  end
+
+  local function windowToCanvas(x, y, state)
+    local ax, ay = anchoredCanvasPoint(state, x, y)
+    if ax then return ax, ay end
+
     local viewport = runtime.viewport
     if not viewport then return nil end
     local gx = tonumber(viewport.gameX) or tonumber(viewport.x) or 0
@@ -36,7 +124,20 @@ return function(deps)
     local gh = tonumber(viewport.gameHeight) or tonumber(viewport.height) or 0
     if gw <= 0 or gh <= 0 then return nil end
     if x < gx or y < gy or x > gx + gw or y > gy + gh then return nil end
-    return (x - gx) * 160 / gw, (y - gy) * 144 / gh
+
+    local surfaceW, surfaceH = surfaceSize(viewport)
+    local ux = (x - gx) * surfaceW / gw
+    local uy = (y - gy) * surfaceH / gh
+
+    -- A classic menu pushed over a 304x144 wide battle is drawn in a centred
+    -- 160x144 sub-surface. BattleState itself owns all 304 columns.
+    if surfaceW > 160 and not isBattleShape(state) then
+      ux = ux - (surfaceW - 160) / 2
+    end
+    if surfaceH > 144 and not isBattleShape(state) then
+      uy = uy - (surfaceH - 144) / 2
+    end
+    return ux, uy
   end
 
   local function tap(button)
@@ -74,8 +175,7 @@ return function(deps)
       if n <= 0 then return nil end
       local y0 = (17 - n * 2) * 8
       if ux < 72 or ux > 160 or uy < y0 or uy >= y0 + n * 16 then return nil end
-      local row = math.floor((uy - y0) / 16) + 1
-      return "subIndex", row, n
+      return "subIndex", math.floor((uy - y0) / 16) + 1, n
     end
     local current = game()
     local party = state.party or (current and current.save and current.save.party) or {}
@@ -166,12 +266,15 @@ return function(deps)
   local function choiceTarget(state, ux, uy)
     if state.pending ~= nil then return nil end
     local left, right = state.tx * 8, (state.tx + state.tw) * 8
-    if ux < left or ux > right then return nil end
-    local yesY = (state.ty + 1) * 8
-    local noY = (state.ty + 3) * 8
-    if uy >= yesY - 6 and uy <= yesY + 10 then return "index", 1, 2 end
-    if uy >= noY - 6 and uy <= noY + 10 then return "index", 2, 2 end
-    return nil
+    local top, bottom = state.ty * 8, (state.ty + state.th) * 8
+    if ux < left or ux > right or uy < top or uy > bottom then return nil end
+
+    -- Match the two actual text rows rather than broad outward-biased bands.
+    -- YES is drawn at ty+1, NO at ty+3; choose whichever row centre is nearer.
+    local yesCenter = (state.ty + 1.5) * 8
+    local noCenter = (state.ty + 3.5) * 8
+    local index = math.abs(uy - yesCenter) <= math.abs(uy - noCenter) and 1 or 2
+    return "index", index, 2
   end
 
   local function looksLikeSummary(state)
@@ -201,12 +304,6 @@ return function(deps)
     return nil
   end
 
-  -- The in-game mod manager is intentionally not a Menu/ListMenu subclass.
-  -- It owns several screens behind one ManagerState and routes mapped input
-  -- itself, including header skipping, tab-specific rows, option scrolling,
-  -- and modal confirms. Wheel navigation must therefore inject the same
-  -- source-safe Up/Down edge as a keyboard or controller instead of mutating
-  -- its private cursor fields from this compatibility layer.
   local function looksLikeModManager(state)
     return type(state) == "table"
       and (state.screenId == "ManagerState"
@@ -217,7 +314,82 @@ return function(deps)
           and type(state.rowsForScreen) == "function"))
   end
 
+  local function battleWide(state)
+    if type(state.wideLayout) == "function" then
+      local ok, result = pcall(state.wideLayout, state)
+      if ok then return result == true end
+    end
+    local w = surfaceSize(runtime.viewport)
+    return w > 160
+  end
+
+  local function battleTarget(state, ux, uy)
+    local phase = state.phase
+    local wide = battleWide(state)
+
+    if phase == "menu" then
+      if state.demo then return nil end
+      if uy < 104 or uy > 144 then return nil end
+      local col, row
+      if state.safari then
+        local rightStart = wide and 160 or 104
+        local maxX = wide and 304 or 160
+        if ux < 0 or ux > maxX then return nil end
+        col = ux >= rightStart and 1 or 0
+      else
+        local left = wide and 160 or 64
+        local rightStart = wide and 232 or 120
+        local maxX = wide and 304 or 160
+        if ux < left or ux > maxX then return nil end
+        col = ux >= rightStart and 1 or 0
+      end
+      row = uy >= 124 and 1 or 0
+      return "battleMenuIndex", row * 2 + col + 1, 4
+    end
+
+    if phase == "moveSelect" then
+      local moves = state.player and state.player.curMoves or {}
+      local count = #moves
+      if count <= 0 then return nil end
+      if wide then
+        if ux < 0 or ux >= 224 or uy < 104 or uy > 144 then return nil end
+        local col = ux >= 112 and 1 or 0
+        local row = uy >= 124 and 1 or 0
+        local index = row * 2 + col + 1
+        if index > count then return nil end
+        return "battleMoveIndex", index, count
+      end
+      if ux < 32 or ux > 160 or uy < 104 or uy >= 104 + count * 8 then return nil end
+      return "battleMoveIndex", math.floor((uy - 104) / 8) + 1, count
+    end
+
+    if phase == "mimicSelect" then
+      local moves = state.mimicMoves or {}
+      local count = #moves
+      if count <= 0 then return nil end
+      if wide then
+        if ux < 0 or ux >= 224 or uy < 104 or uy > 144 then return nil end
+        local col = ux >= 112 and 1 or 0
+        local row = uy >= 124 and 1 or 0
+        local index = row * 2 + col + 1
+        if index > count then return nil end
+        return "battleMimicIndex", index, count
+      end
+      if ux < 0 or ux > 128 or uy < 64 or uy >= 64 + count * 8 then return nil end
+      return "battleMimicIndex", math.floor((uy - 64) / 8) + 1, count
+    end
+
+    if phase == "messages" then
+      local maxX = wide and 304 or 160
+      if ux >= 0 and ux <= maxX and uy >= 104 and uy <= 144 then
+        return "advance", 1, 1
+      end
+    end
+    return nil
+  end
+
   local function targetAt(state, ux, uy)
+    if isBattleShape(state) then return battleTarget(state, ux, uy) end
     if looksLikeParty(state) then return partyTarget(state, ux, uy) end
     if looksLikeList(state) then return listTarget(state, ux, uy) end
     if looksLikeOptionRows(state) then return optionTarget(state, ux, uy) end
@@ -233,11 +405,16 @@ return function(deps)
   local function applyTarget(state, field, value, count, activate)
     if field == "advance" then
       return activate and tapA() or true
-    end
-    if field == "subIndex" then
+    elseif field == "subIndex" then
       state.subIndex = math.max(1, math.min(count, value))
     elseif field == "index" then
       if not clampIndex(state, value, count) then return false end
+    elseif field == "battleMenuIndex" then
+      state.menuIndex = math.max(1, math.min(count, value))
+    elseif field == "battleMoveIndex" then
+      state.moveIndex = math.max(1, math.min(count, value))
+    elseif field == "battleMimicIndex" then
+      state.mimicIndex = math.max(1, math.min(count, value))
     else
       return false
     end
@@ -250,7 +427,7 @@ return function(deps)
   end
 
   function Native.inGameViewport(x, y)
-    return windowToCanvas(x, y) ~= nil
+    return windowToCanvas(x, y, topState()) ~= nil
   end
 
   function Native.hover(x, y)
@@ -258,7 +435,7 @@ return function(deps)
     if not state or isOverworld(state) then return false end
     local supported = presenter.isSupportedStartMenu(game())
     if supported then return false end
-    local ux, uy = windowToCanvas(x, y)
+    local ux, uy = windowToCanvas(x, y, state)
     if not ux then return false end
     local field, value, count = targetAt(state, ux, uy)
     if not field or field == "advance" then return false end
@@ -270,7 +447,7 @@ return function(deps)
     if not state or isOverworld(state) then return false end
     local supported = presenter.isSupportedStartMenu(game())
     if supported then return false end
-    local ux, uy = windowToCanvas(x, y)
+    local ux, uy = windowToCanvas(x, y, state)
     if not ux then return false end
     local field, value, count = targetAt(state, ux, uy)
     if not field then return false end
@@ -286,7 +463,25 @@ return function(deps)
 
     local delta = dy > 0 and -1 or 1
     if looksLikeModManager(state) then
+      -- ManagerState owns header skipping, scrolling, options and overlays.
       return tap(delta < 0 and "up" or "down")
+    elseif isBattleShape(state) then
+      if state.phase == "menu" and not state.demo then
+        state.menuIndex = ((state.menuIndex or 1) - 1 + delta) % 4 + 1
+        return true
+      elseif state.phase == "moveSelect" then
+        local count = #(state.player and state.player.curMoves or {})
+        if count > 0 then
+          state.moveIndex = ((state.moveIndex or 1) - 1 + delta) % count + 1
+          return true
+        end
+      elseif state.phase == "mimicSelect" then
+        local count = #(state.mimicMoves or {})
+        if count > 0 then
+          state.mimicIndex = ((state.mimicIndex or 1) - 1 + delta) % count + 1
+          return true
+        end
+      end
     elseif looksLikeParty(state) then
       if state.submenu and type(state.subItems) == "table" and #state.subItems > 0 then
         local n = #state.subItems
@@ -325,6 +520,7 @@ return function(deps)
   function Native.kind()
     local state = topState()
     if isOverworld(state) then return "overworld" end
+    if isBattleShape(state) then return "battle" end
     if looksLikeModManager(state) then return "mod_manager" end
     if looksLikeParty(state) then return "party" end
     if looksLikeList(state) then return "list" end
