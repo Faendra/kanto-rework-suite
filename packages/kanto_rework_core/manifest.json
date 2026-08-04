@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_core",
   "name": "Kanto Rework Core (P0)",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -15,5 +15,5 @@
   "permissions": ["filesystem", "engine_internals"],
   "experimental": true,
   "affects_link": false,
-  "description": "P0.0.5 runtime test: Field Journal Start menu, companion overlay, global mouse Back, safe native fallback."
+  "description": "P0.0.6 runtime test: Field Journal Start menu, companion overlay, global mouse Back, semantic left-click adapters for native screens."
 }
