@@ -13,13 +13,22 @@ return function(mod)
   local createPointer = loadModule("core/pointer.lua")
 
   mod.options:define({
-    { key = "replace_start_menu", label = "REPLACE START MENU", type = "toggle", default = true },
-    { key = "overlay", label = "P0 OVERLAY", type = "toggle", default = true },
-    { key = "theme", label = "THEME", type = "choice", default = "field_journal",
+    { key = "replace_start_menu", label = "REPLACE START MENU", type = "toggle",
+      default = true,
+      description = "Replace the released Start menu with the Field Journal presenter." },
+    { key = "overlay", label = "COMPANION OVERLAY", type = "toggle",
+      default = true,
+      description = "Show the movable P0 trainer companion card outside the Start menu." },
+    { key = "theme", label = "UI THEME", type = "choice",
+      default = "field_journal",
       choices = {
         { "FIELD JOURNAL", "field_journal" },
         { "GRAPHITE", "graphite" },
-      } },
+      },
+      description = "Switch the live vector design tokens used by the P0 interface." },
+    { key = "diagnostics", label = "P0 DIAGNOSTIC BADGE", type = "toggle",
+      default = true,
+      description = "Show the render-hook and Start-menu detection state for this test build." },
   })
 
   local global = _G.__KANTO_REWORK_CORE_P0 or { original = {} }
@@ -40,7 +49,7 @@ return function(mod)
     path = "kanto_rework/profiles/p0_default.lua",
     defaults = {
       theme = mod.options:get("theme") or "field_journal",
-      overlayVisible = mod.options:get("overlay") ~= false,
+      overlayVisible = true,
       widgetLocked = false,
       widgetX = 0.04,
       widgetY = 0.08,
@@ -49,9 +58,7 @@ return function(mod)
 
   local profile, profileError = profileStore.load()
   global.profile = profile
-  if profileError then
-    mod.log:warn("profile fallback: %s", tostring(profileError))
-  end
+  if profileError then mod.log:warn("profile fallback: %s", tostring(profileError)) end
 
   local function persist()
     local ok, err = profileStore.save(global.profile)
@@ -63,6 +70,7 @@ return function(mod)
     Layout = Layout,
     Theme = Theme,
     runtime = global,
+    MenuClass = mod.ui and mod.ui.Menu,
   })
   global.presenter = presenter
 
@@ -75,11 +83,11 @@ return function(mod)
   })
 
   local function logPresenterError(err)
-    local text = tostring(err)
-    global.presenterError = text
-    if global.loggedPresenterError ~= text then
-      global.loggedPresenterError = text
-      mod.log:error("presenter failed; native UI restored: %s", text)
+    local value = tostring(err)
+    global.presenterError = value
+    if global.loggedPresenterError ~= value then
+      global.loggedPresenterError = value
+      mod.log:error("presenter failed; native UI retained: %s", value)
     end
   end
 
@@ -87,21 +95,21 @@ return function(mod)
     if not (love and love.graphics and viewport) then return end
     local width = tonumber(viewport.width) or 640
     local height = tonumber(viewport.height) or 360
-    local boxW = math.min(680, math.max(300, width - 48))
-    local boxH = 112
+    local boxW = math.min(760, math.max(320, width - 48))
+    local boxH = 118
     local x = (width - boxW) / 2
-    local y = math.max(24, height - boxH - 24)
+    local y = math.max(24, height - boxH - 52)
     love.graphics.push("all")
     love.graphics.origin()
-    love.graphics.setColor(0.10, 0.04, 0.05, 0.96)
+    love.graphics.setColor(0.10, 0.025, 0.035, 0.97)
     love.graphics.rectangle("fill", x, y, boxW, boxH, 12)
-    love.graphics.setColor(0.95, 0.28, 0.28, 1)
+    love.graphics.setColor(0.96, 0.28, 0.25, 1)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, boxW, boxH, 12)
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print("Kanto Rework presenter error — native UI restored", x + 18, y + 16)
-    love.graphics.setColor(0.88, 0.82, 0.82, 1)
-    love.graphics.printf(tostring(message), x + 18, y + 46, boxW - 36, "left")
+    love.graphics.print("Kanto Rework presenter error — native UI kept visible", x + 18, y + 16)
+    love.graphics.setColor(0.90, 0.84, 0.84, 1)
+    love.graphics.printf(tostring(message), x + 18, y + 48, boxW - 36, "left")
     love.graphics.pop()
   end
 
@@ -114,9 +122,6 @@ return function(mod)
     if payload.key == "theme" and type(payload.value) == "string" then
       global.profile.theme = payload.value
       persist()
-    elseif payload.key == "overlay" then
-      global.profile.overlayVisible = payload.value ~= false
-      persist()
     end
   end)
 
@@ -125,14 +130,17 @@ return function(mod)
     return next(game, dt)
   end, 120)
 
+  -- render.compose has no Game parameter. The released engine calls
+  -- render.zones immediately before it, so cache the exact live singleton.
   mod.hooks:wrap("render.zones", function(next, game, zones)
     global.game = game
     return next(game, zones)
   end, 120)
 
-  -- Never remove the native Start menu until the high-resolution presenter
-  -- completed successfully on the preceding frame. This prevents an invisible
-  -- input-owning menu if the HUD hook is absent or a draw error occurs.
+  -- Preserve the native menu until the presenter has completed at least one
+  -- frame. On following frames clear only the classic UI canvas; the world,
+  -- post-processing, palette zones and external render pipeline stay owned by
+  -- the engine.
   mod.hooks:wrap("render.compose", function(next, renderer, ctx)
     local handled = next(renderer, ctx)
     if handled == true or mod.options:get("replace_start_menu") == false then
@@ -149,6 +157,9 @@ return function(mod)
     return handled
   end, 120)
 
+  -- render.hud is the released full-window presentation seam. It runs after
+  -- the engine composite and before touch controls, matching Gen1 Modern UI's
+  -- proven ownership model while leaving native state/input callbacks intact.
   mod.hooks:wrap("render.hud", function(next, game, viewport)
     global.game = game
     next(game, viewport)
@@ -156,11 +167,13 @@ return function(mod)
       global.presenterReady = false
       return
     end
+
     global.viewport = viewport
     global.startMenu = nil
     global.overlayRegion = nil
     global.presenterReady = false
     global.presenterError = nil
+    global.profile.theme = mod.options:get("theme") or global.profile.theme
 
     if mod.options:get("replace_start_menu") ~= false then
       local ok, drawn = pcall(presenter.drawStartMenu,
@@ -174,15 +187,21 @@ return function(mod)
     end
 
     if mod.options:get("overlay") ~= false then
-      local ok, err = pcall(presenter.drawOverlay, viewport, global.profile)
+      local ok, err = pcall(presenter.drawOverlay,
+        game, viewport, global.profile)
       if not ok then
         logPresenterError(err)
         drawEmergencyNotice(viewport, err)
       end
     end
+
+    local ok, err = pcall(presenter.drawDiagnostics,
+      game, viewport, global.profile,
+      mod.options:get("diagnostics") ~= false)
+    if not ok then logPresenterError(err) end
   end, 120)
 
-  mod.exports.version = 2
+  mod.exports.version = 4
   mod.exports.layoutClass = function(width, height)
     return Layout.classify(width, height)
   end
@@ -196,13 +215,18 @@ return function(mod)
     }
   end
   mod.exports.diagnostics = function()
+    local supported, state, reason = presenter.isSupportedStartMenu(global.game)
     return {
+      hudActive = global.viewport ~= nil,
       presenterReady = global.presenterReady,
       presenterError = global.presenterError,
+      startMenuSupported = supported,
+      topScreenId = state and state.screenId or nil,
+      supportReason = reason,
       viewport = global.viewport,
     }
   end
   mod.exports.isPointerExperimental = true
 
-  mod.log:info("P0 core loaded: safe fallback enabled; F8 overlay, F9 edit overlay")
+  mod.log:info("P0.0.4 loaded: released render.hud/compose contract, structural Start-menu detection")
 end
