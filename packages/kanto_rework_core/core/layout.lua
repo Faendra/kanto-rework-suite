@@ -8,15 +8,15 @@ function Layout.classify(width, height)
   width = math.max(1, tonumber(width) or 1)
   height = math.max(1, tonumber(height) or 1)
   local ratio = width / height
-  if ratio >= 1.35 then return "landscape" end
+  if ratio >= 1.45 then return "landscape" end
   if ratio <= 0.82 then return "portrait" end
   return "classic"
 end
 
 function Layout.safeArea(viewport)
-  local width = math.max(1, viewport and viewport.width or 1)
-  local height = math.max(1, viewport and viewport.height or 1)
-  local margin = clamp(math.floor(math.min(width, height) * 0.025), 16, 40)
+  local width = math.max(1, tonumber(viewport and viewport.width) or 1)
+  local height = math.max(1, tonumber(viewport and viewport.height) or 1)
+  local margin = clamp(math.floor(math.min(width, height) * 0.028), 16, 42)
   return {
     x = margin,
     y = margin,
@@ -29,53 +29,82 @@ end
 function Layout.startMenu(viewport, rowCount)
   local safe = Layout.safeArea(viewport)
   local class = Layout.classify(viewport.width, viewport.height)
+  local gap = clamp(math.floor(math.min(viewport.width, viewport.height) * 0.018), 12, 24)
   local rowHeight
-  local width
+  local menuW
+  local infoW
   local headerHeight
   local footerHeight
 
   if class == "landscape" then
-    rowHeight = clamp(math.floor(viewport.height * 0.058), 50, 72)
-    width = clamp(math.floor(viewport.width * 0.27), 380, 520)
-    headerHeight = 68
+    rowHeight = clamp(math.floor(viewport.height * 0.064), 54, 74)
+    menuW = clamp(math.floor(viewport.width * 0.30), 390, 520)
+    infoW = clamp(math.floor(viewport.width * 0.22), 285, 390)
+    headerHeight = 94
     footerHeight = 58
   elseif class == "portrait" then
-    rowHeight = clamp(math.floor(viewport.height * 0.041), 58, 76)
-    width = math.min(safe.w, 560)
-    headerHeight = 76
-    footerHeight = 66
+    rowHeight = clamp(math.floor(viewport.height * 0.045), 58, 78)
+    menuW = math.min(safe.w, 620)
+    infoW = menuW
+    headerHeight = 90
+    footerHeight = 64
   else
-    rowHeight = clamp(math.floor(viewport.height * 0.046), 54, 70)
-    width = math.min(safe.w, 680)
-    headerHeight = 72
-    footerHeight = 62
+    rowHeight = clamp(math.floor(viewport.height * 0.050), 54, 72)
+    menuW = math.min(safe.w, 700)
+    infoW = math.min(menuW, 520)
+    headerHeight = 90
+    footerHeight = 60
   end
 
-  local maxRows = math.max(1, math.floor((safe.h - headerHeight - footerHeight) / rowHeight))
-  local visibleRows = math.min(math.max(1, rowCount or 1), maxRows)
-  local height = headerHeight + visibleRows * rowHeight + footerHeight
-  local x
-  local y
-
-  if class == "landscape" then
-    x = safe.x + safe.w - width
-    y = safe.y + math.max(0, (safe.h - height) * 0.5)
+  local maxRows
+  if class == "portrait" then
+    maxRows = math.max(1, math.floor((safe.h * 0.64 - headerHeight - footerHeight) / rowHeight))
   else
-    x = safe.x + math.max(0, (safe.w - width) * 0.5)
-    y = safe.y + math.max(0, (safe.h - height) * 0.5)
+    maxRows = math.max(1, math.floor((safe.h - headerHeight - footerHeight) / rowHeight))
+  end
+  local visibleRows = math.min(math.max(1, rowCount or 1), maxRows)
+  local menuH = headerHeight + visibleRows * rowHeight + footerHeight
+
+  local menuX, menuY, infoX, infoY, infoH
+  if class == "landscape" then
+    menuX = safe.x + safe.w - menuW
+    menuY = safe.y + math.max(0, (safe.h - menuH) * 0.5)
+    infoX = safe.x
+    infoH = clamp(math.floor(menuH * 0.60), 245, 390)
+    infoY = safe.y + math.max(0, (safe.h - infoH) * 0.5)
+  elseif class == "portrait" then
+    infoH = clamp(math.floor(safe.h * 0.21), 190, 290)
+    infoX = safe.x + math.max(0, (safe.w - infoW) * 0.5)
+    infoY = safe.y
+    menuX = safe.x + math.max(0, (safe.w - menuW) * 0.5)
+    menuY = math.min(safe.y + safe.h - menuH, infoY + infoH + gap)
+  else
+    menuX = safe.x + math.max(0, (safe.w - menuW) * 0.5)
+    menuY = safe.y + math.max(0, (safe.h - menuH) * 0.5)
+    infoH = 0
+    infoX = safe.x
+    infoY = safe.y
   end
 
   return {
     class = class,
-    x = math.floor(x + 0.5),
-    y = math.floor(y + 0.5),
-    w = math.floor(width + 0.5),
-    h = math.floor(height + 0.5),
+    x = math.floor(menuX + 0.5),
+    y = math.floor(menuY + 0.5),
+    w = math.floor(menuW + 0.5),
+    h = math.floor(menuH + 0.5),
     rowHeight = rowHeight,
     headerHeight = headerHeight,
     footerHeight = footerHeight,
     visibleRows = visibleRows,
     safe = safe,
+    gap = gap,
+    info = {
+      x = math.floor(infoX + 0.5),
+      y = math.floor(infoY + 0.5),
+      w = math.floor(infoW + 0.5),
+      h = math.floor(infoH + 0.5),
+      visible = infoH > 0,
+    },
   }
 end
 
