@@ -106,7 +106,7 @@ return function(deps)
   local function knownStructuredScreen()
     local kind = native.kind()
     return kind == "party" or kind == "list" or kind == "options"
-      or kind == "menu" or kind == "choice" or kind == "mod_manager"
+      or kind == "menu" or kind == "choice"
   end
 
   local function activatePrimary(x, y)
@@ -119,7 +119,9 @@ return function(deps)
     -- fall through to native A: this covers the live overworld even when an
     -- engine/mod wrapper means the top state is not identity-equal to the
     -- exported OverworldController singleton, and also preserves ordinary
-    -- dialogue/cutscene advancement.
+    -- dialogue/cutscene advancement. ManagerState currently keeps this
+    -- fallback so its already-validated left-click behavior remains intact;
+    -- wheel navigation has its own explicit adapter.
     local startSupported = supportedMenu()
     if startSupported or knownStructuredScreen() then return false end
     if native.inGameViewport(x, y) and hasTopState() then
