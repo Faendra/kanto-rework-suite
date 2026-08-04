@@ -128,6 +128,15 @@ local viewport = {
   width = 1920, height = 1080,
   gameX = 0, gameY = 0, gameWidth = 1200, gameHeight = 1080,
 }
+local function windowPoint(ux, uy)
+  return viewport.gameX + ux / 160 * viewport.gameWidth,
+         viewport.gameY + uy / 144 * viewport.gameHeight
+end
+local function clickCanvas(ux, uy, button)
+  mouseX, mouseY = windowPoint(ux, uy)
+  love.mousemoved(mouseX, mouseY, 0, 0, false)
+  love.mousepressed(mouseX, mouseY, button or 1, false, 1)
+end
 
 events["game.ready"]({ game = game })
 hooks["render.zones"](function(_, zones) return zones end, game, {})
@@ -154,24 +163,107 @@ check(taps[#taps] == "a", "left click activates through mod.input")
 love.mousepressed(mouseX, mouseY, 2, false, 1)
 check(taps[#taps] == "b", "right click returns through mod.input")
 
--- Native fallback: unknown non-menu state must not clear the canvas, but it
--- is still an active UI state and therefore accepts the global mouse Back.
-local partyScreen = { screenId = "PartyMenu" }
+-- Native PartyMenu: hovering selects the real slot, clicking injects A.
+local partyScreen = {
+  screenId = "PartyMenu",
+  index = 1,
+  bottomMessage = function() return "Choose a POKéMON." end,
+}
 game.stack.states = { overworld, partyScreen }
 hooks["render.hud"](function() end, game, viewport)
 local before = clearCount
 hooks["render.compose"](function() return false end, {}, { uiCanvas = {} })
-check(clearCount == before, "unknown screen keeps native UI")
+check(clearCount == before, "native party keeps native UI")
+local tapsBeforeParty = #taps
+clickCanvas(40, 24, 1)
+check(partyScreen.index == 2, "party hover/click selects second party slot")
+check(#taps == tapsBeforeParty + 1 and taps[#taps] == "a",
+  "party left click activates through native A")
 local tapsBeforePartyBack = #taps
-love.mousepressed(10, 10, 2, false, 1)
+clickCanvas(40, 24, 2)
 check(#taps == tapsBeforePartyBack + 1 and taps[#taps] == "b",
   "right click backs out of a native fallback screen")
 
--- Right-click must remain inert in the ordinary overworld.
+-- Party submenu uses its actual lower-right geometry.
+partyScreen.submenu = true
+partyScreen.subItems = { { label = "STATS" }, { label = "SWITCH" }, { label = "CANCEL" } }
+partyScreen.subIndex = 1
+local submenuY0 = (17 - #partyScreen.subItems * 2) * 8
+local tapsBeforeSubmenu = #taps
+clickCanvas(100, submenuY0 + 16 + 8, 1)
+check(partyScreen.subIndex == 2, "party submenu click selects second command")
+check(#taps == tapsBeforeSubmenu + 1 and taps[#taps] == "a",
+  "party submenu click activates native A")
+partyScreen.submenu, partyScreen.subItems = nil, nil
+
+-- Native ListMenu contract used by Bag, Pokédex, shops and PC lists.
+local listScreen = {
+  title = "BAG", items = { { label = "POTION" }, { label = "ANTIDOTE" },
+                            { label = "ESCAPE ROPE" } },
+  rows = 7, index = 1, scroll = 0, onChoose = function() end,
+}
+game.stack.states = { overworld, listScreen }
+hooks["render.hud"](function() end, game, viewport)
+local tapsBeforeList = #taps
+clickCanvas(80, 56, 1) -- third row: 16 + (3-1)*16 .. +16
+check(listScreen.index == 3, "list click selects the visible native row")
+check(#taps == tapsBeforeList + 1 and taps[#taps] == "a",
+  "list click activates native A")
+
+-- OptionRows contract used by Options and per-mod option screens.
+local optionScreen = {
+  rows = { { id = "one" }, { id = "two" }, { id = "three" },
+           { id = "four" }, { id = "five" } },
+  index = 1, scroll = 0,
+}
+game.stack.states = { overworld, optionScreen }
+hooks["render.hud"](function() end, game, viewport)
+local tapsBeforeOption = #taps
+clickCanvas(80, 72, 1) -- third 32px option box
+check(optionScreen.index == 3, "option click selects third option row")
+check(#taps == tapsBeforeOption + 1 and taps[#taps] == "a",
+  "option click activates native A")
+clickCanvas(80, 136, 1)
+check(optionScreen.index == #optionScreen.rows + 1,
+  "option footer click selects CANCEL")
+
+-- Generic boxed Menu contract used by choices and action submenus.
+local boxed = {
+  items = { { label = "YES" }, { label = "NO" } },
+  index = 1, scroll = 0, startCloses = false,
+  tx = 10, ty = 8, tw = 10, th = 6, rowStep = 2,
+  clampScroll = function() end,
+}
+game.stack.states = { overworld, boxed }
+hooks["render.hud"](function() end, game, viewport)
+local tapsBeforeBoxed = #taps
+clickCanvas(120, 96, 1)
+check(boxed.index == 2, "boxed menu click selects second choice")
+check(#taps == tapsBeforeBoxed + 1 and taps[#taps] == "a",
+  "boxed menu click activates native A")
+
+-- Summary is a single-action two-page state: left click advances exactly as A.
+local summary = { mon = {}, page = 1 }
+game.stack.states = { overworld, summary }
+hooks["render.hud"](function() end, game, viewport)
+local tapsBeforeSummary = #taps
+clickCanvas(80, 72, 1)
+check(#taps == tapsBeforeSummary + 1 and taps[#taps] == "a",
+  "summary left click advances through native A")
+
+-- Native wheel navigation also follows the active screen contract.
+game.stack.states = { overworld, listScreen }
+listScreen.index = 1
+mouseX, mouseY = windowPoint(80, 24)
+love.wheelmoved(0, -1)
+check(listScreen.index == 2, "wheel navigates native list")
+
+-- Pointer actions must remain inert in the ordinary overworld.
 game.stack.states = { overworld }
 local tapsBeforeWorldClick = #taps
-love.mousepressed(10, 10, 2, false, 1)
+clickCanvas(80, 72, 2)
+clickCanvas(80, 72, 1)
 check(#taps == tapsBeforeWorldClick,
-  "right click does not inject B in the overworld")
+  "left and right click do not inject actions in the overworld")
 
 print("P0 runtime smoke passed")
