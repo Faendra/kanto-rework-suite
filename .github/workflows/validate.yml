@@ -22,3 +22,9 @@ jobs:
       - run: |
           find packages/kanto_rework_core/core -name '*.lua' -print0 \
             | xargs -0 -n1 npx --yes luaparse -q
+      - run: python tools/build_core.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kanto-rework-core-p0
+          path: dist/kanto_rework_core-*.zip
+          if-no-files-found: error
