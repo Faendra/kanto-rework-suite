@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_core",
   "name": "Kanto Rework Core (P0)",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "api": 2,
   "entry": "main.lua",
   "profile": "overhaul",
@@ -15,5 +15,5 @@
   "permissions": ["filesystem", "engine_internals"],
   "experimental": true,
   "affects_link": false,
-  "description": "P0.0.8 runtime test: official input.pointer integration, overworld A interaction, global B cancel, dialogue and native menu mouse support."
+  "description": "P0.0.9 runtime test: mouse-wheel support in the mod manager, calibrated anchored choices, and classic/wide battle mouse controls."
 }
