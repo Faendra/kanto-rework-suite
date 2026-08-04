@@ -24,18 +24,10 @@ return function(deps)
     return presenter.isSupportedStartMenu(game())
   end
 
-  -- Right-click is the global mouse equivalent of the Game Boy B button.
-  -- It must therefore work on every active UI state, including native
-  -- fallback screens that Kanto Rework has not presented yet. The only state
-  -- where it must not inject B is the ordinary overworld, where a stray click
-  -- should remain inert.
-  local function uiStateActive()
+  local function hasTopState()
     local current = game()
     local stack = current and current.stack
-    local top = stack and type(stack.top) == "function" and stack:top() or nil
-    if not top then return false end
-    if current.overworld and top == current.overworld then return false end
-    return true, top
+    return stack and type(stack.top) == "function" and stack:top() ~= nil
   end
 
   local function updateHover(x, y)
@@ -199,14 +191,37 @@ return function(deps)
     if istouch then return false end
     runtime.lastInput = "mouse"
     local region = updateHover(x, y)
-    if button == 2 and uiStateActive() then
-      mod.input:tap(game(), "b")
+
+    -- The companion overlay owns its rectangle. Even while locked, pointer
+    -- presses on it must never interact with an NPC or menu underneath.
+    if region and region.kind == "overlay" then
+      if button == 1 and beginDrag(region, x, y) then return true end
       return true
     end
+
+    -- Right click is the global B/Cancel action, including the overworld.
+    -- ChoiceBox already maps B to NO, so dialogue choices retain native
+    -- behavior rather than receiving a custom callback path.
+    if button == 2 and hasTopState() then
+      if not native.isOverworld() or native.inGameViewport(x, y) then
+        mod.input:tap(game(), "b")
+        return true
+      end
+      return false
+    end
+
     if button ~= 1 then return false end
     if beginDrag(region, x, y) then return true end
     if selectRow(region, true) then return true end
-    return native.activate(x, y)
+    if native.activate(x, y) then return true end
+
+    -- In the live overworld, left click is the native A action: talk to the
+    -- facing NPC, inspect a sign/object, or trigger any ordinary interaction.
+    if native.isOverworld() and native.inGameViewport(x, y) then
+      mod.input:tap(game(), "a")
+      return true
+    end
+    return false
   end
 
   runtime.handlers.mousereleased = function(_, _, button)
@@ -232,6 +247,7 @@ return function(deps)
       if state.clampScroll then state:clampScroll() end
       return true
     end
+    if region and region.kind == "overlay" then return true end
     return native.wheel(dy)
   end
 
@@ -239,7 +255,10 @@ return function(deps)
     runtime.lastInput = "touch"
     runtime.touchId = id
     local region = updateHover(x, y)
-    if beginDrag(region, x, y) then return true end
+    if region and region.kind == "overlay" then
+      if beginDrag(region, x, y) then return true end
+      return true
+    end
     if selectRow(region, true) then return true end
     return native.activate(x, y)
   end
