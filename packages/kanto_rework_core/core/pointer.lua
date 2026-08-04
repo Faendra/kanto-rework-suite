@@ -106,7 +106,7 @@ return function(deps)
   local function knownStructuredScreen()
     local kind = native.kind()
     return kind == "party" or kind == "list" or kind == "options"
-      or kind == "menu" or kind == "choice"
+      or kind == "menu" or kind == "choice" or kind == "battle"
   end
 
   local function activatePrimary(x, y)
