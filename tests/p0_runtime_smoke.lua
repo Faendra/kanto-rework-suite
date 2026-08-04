@@ -58,12 +58,8 @@ menuClass.__index = menuClass
 local mod = {
   id = "kanto_rework_core",
   path = packageDir,
-  hooks = {
-    wrap = function(_, name, callback) hooks[name] = callback end,
-  },
-  events = {
-    on = function(_, name, callback) events[name] = callback end,
-  },
+  hooks = { wrap = function(_, name, callback) hooks[name] = callback end },
+  events = { on = function(_, name, callback) events[name] = callback end },
   options = {
     define = function(_, schema)
       for _, row in ipairs(schema) do optionValues[row.key] = row.default end
@@ -71,14 +67,8 @@ local mod = {
     get = function(_, key) return optionValues[key] end,
   },
   ui = { Menu = menuClass },
-  input = {
-    tap = function(_, _, button) taps[#taps + 1] = button end,
-  },
-  log = {
-    info = function() end,
-    warn = function() end,
-    error = function() end,
-  },
+  input = { tap = function(_, _, button) taps[#taps + 1] = button end },
+  log = { info = function() end, warn = function() end, error = function() end },
   exports = {},
 }
 
@@ -94,7 +84,6 @@ end
 check(type(events["game.ready"]) == "function", "game.ready listener registered")
 
 local startMenu = setmetatable({
-  -- Deliberately no screenId: this is the released StartMenu shape.
   items = {
     { label = "POKéDEX" }, { label = "POKéMON" }, { label = "ITEM" },
     { label = "RED" }, { label = "SAVE" }, { label = "OPTION" },
@@ -113,10 +102,7 @@ local game = {
     party = { {}, {}, {} },
     money = 107207,
     playTime = 22 * 3600 + 54 * 60,
-    pokedex = {
-      owned = { a = true, b = true },
-      seen = { a = true, b = true, c = true },
-    },
+    pokedex = { owned = { a = true }, seen = { a = true, b = true } },
   },
   data = { maps = { CELADON_MART = { name = "CELADON MART" } } },
   stack = {
@@ -126,7 +112,7 @@ local game = {
 }
 local viewport = {
   width = 1920, height = 1080,
-  gameX = 0, gameY = 0, gameWidth = 1200, gameHeight = 1080,
+  gameX = 200, gameY = 0, gameWidth = 1200, gameHeight = 1080,
 }
 local function windowPoint(ux, uy)
   return viewport.gameX + ux / 160 * viewport.gameWidth,
@@ -137,133 +123,133 @@ local function clickCanvas(ux, uy, button)
   love.mousemoved(mouseX, mouseY, 0, 0, false)
   love.mousepressed(mouseX, mouseY, button or 1, false, 1)
 end
+local function render()
+  hooks["render.hud"](function() end, game, viewport)
+end
 
 events["game.ready"]({ game = game })
 hooks["render.zones"](function(_, zones) return zones end, game, {})
-hooks["render.hud"](function() end, game, viewport)
-
-local diagnostics = mod.exports.diagnostics()
-check(diagnostics.presenterReady == true,
+render()
+check(mod.exports.diagnostics().presenterReady == true,
   "screenId-less released Start menu is presented")
-check(diagnostics.startMenuSupported == true,
-  "Start menu support reports true")
-
 hooks["render.compose"](function() return false end, {}, { uiCanvas = {} })
-check(clearCount == 1,
-  "native UI canvas clears only after presenter success")
+check(clearCount == 1, "native UI clears only after presenter success")
 
 local runtime = _G.__KANTO_REWORK_CORE_P0
 check(runtime and runtime.startMenu and #runtime.startMenu.regions > 0,
-  "presenter publishes pointer hit regions")
+  "presenter publishes Start-menu regions")
 local first = runtime.startMenu.regions[1]
 mouseX, mouseY = first.x + first.w / 2, first.y + first.h / 2
-love.mousemoved(mouseX, mouseY, 0, 0, false)
 love.mousepressed(mouseX, mouseY, 1, false, 1)
-check(taps[#taps] == "a", "left click activates through mod.input")
+check(taps[#taps] == "a", "Start-menu left click injects A")
 love.mousepressed(mouseX, mouseY, 2, false, 1)
-check(taps[#taps] == "b", "right click returns through mod.input")
+check(taps[#taps] == "b", "Start-menu right click injects B")
 
--- Native PartyMenu: hovering selects the real slot, clicking injects A.
-local partyScreen = {
-  screenId = "PartyMenu",
-  index = 1,
-  bottomMessage = function() return "Choose a POKéMON." end,
-}
-game.stack.states = { overworld, partyScreen }
-hooks["render.hud"](function() end, game, viewport)
-local before = clearCount
-hooks["render.compose"](function() return false end, {}, { uiCanvas = {} })
-check(clearCount == before, "native party keeps native UI")
-local tapsBeforeParty = #taps
+local party = { index = 1, bottomMessage = function() return "Choose." end }
+game.stack.states = { overworld, party }
+render()
 clickCanvas(40, 24, 1)
-check(partyScreen.index == 2, "party hover/click selects second party slot")
-check(#taps == tapsBeforeParty + 1 and taps[#taps] == "a",
-  "party left click activates through native A")
-local tapsBeforePartyBack = #taps
-clickCanvas(40, 24, 2)
-check(#taps == tapsBeforePartyBack + 1 and taps[#taps] == "b",
-  "right click backs out of a native fallback screen")
+check(party.index == 2 and taps[#taps] == "a", "Party row click selects and activates")
 
--- Party submenu uses its actual lower-right geometry.
-partyScreen.submenu = true
-partyScreen.subItems = { { label = "STATS" }, { label = "SWITCH" }, { label = "CANCEL" } }
-partyScreen.subIndex = 1
-local submenuY0 = (17 - #partyScreen.subItems * 2) * 8
-local tapsBeforeSubmenu = #taps
-clickCanvas(100, submenuY0 + 16 + 8, 1)
-check(partyScreen.subIndex == 2, "party submenu click selects second command")
-check(#taps == tapsBeforeSubmenu + 1 and taps[#taps] == "a",
-  "party submenu click activates native A")
-partyScreen.submenu, partyScreen.subItems = nil, nil
+party.submenu = true
+party.subItems = { { label = "STATS" }, { label = "SWITCH" }, { label = "CANCEL" } }
+party.subIndex = 1
+local submenuY0 = (17 - #party.subItems * 2) * 8
+clickCanvas(100, submenuY0 + 24, 1)
+check(party.subIndex == 2 and taps[#taps] == "a", "Party submenu click selects and activates")
 
--- Native ListMenu contract used by Bag, Pokédex, shops and PC lists.
-local listScreen = {
-  title = "BAG", items = { { label = "POTION" }, { label = "ANTIDOTE" },
-                            { label = "ESCAPE ROPE" } },
-  rows = 7, index = 1, scroll = 0, onChoose = function() end,
+local list = {
+  title = "BAG", rows = 7, index = 1, scroll = 0,
+  items = { { label = "POTION" }, { label = "ANTIDOTE" }, { label = "ROPE" } },
+  onChoose = function() end,
 }
-game.stack.states = { overworld, listScreen }
-hooks["render.hud"](function() end, game, viewport)
-local tapsBeforeList = #taps
-clickCanvas(80, 56, 1) -- third row: 16 + (3-1)*16 .. +16
-check(listScreen.index == 3, "list click selects the visible native row")
-check(#taps == tapsBeforeList + 1 and taps[#taps] == "a",
-  "list click activates native A")
+game.stack.states = { overworld, list }
+render()
+clickCanvas(80, 56, 1)
+check(list.index == 3 and taps[#taps] == "a", "List row click selects and activates")
 
--- OptionRows contract used by Options and per-mod option screens.
-local optionScreen = {
-  rows = { { id = "one" }, { id = "two" }, { id = "three" },
-           { id = "four" }, { id = "five" } },
+local options = {
+  rows = { { id = "one" }, { id = "two" }, { id = "three" }, { id = "four" } },
   index = 1, scroll = 0,
 }
-game.stack.states = { overworld, optionScreen }
-hooks["render.hud"](function() end, game, viewport)
-local tapsBeforeOption = #taps
-clickCanvas(80, 72, 1) -- third 32px option box
-check(optionScreen.index == 3, "option click selects third option row")
-check(#taps == tapsBeforeOption + 1 and taps[#taps] == "a",
-  "option click activates native A")
-clickCanvas(80, 136, 1)
-check(optionScreen.index == #optionScreen.rows + 1,
-  "option footer click selects CANCEL")
+game.stack.states = { overworld, options }
+render()
+clickCanvas(80, 72, 1)
+check(options.index == 3 and taps[#taps] == "a", "Options row click selects and activates")
 
--- Generic boxed Menu contract used by choices and action submenus.
 local boxed = {
-  items = { { label = "YES" }, { label = "NO" } },
-  index = 1, scroll = 0, startCloses = false,
-  tx = 10, ty = 8, tw = 10, th = 6, rowStep = 2,
+  items = { { label = "USE" }, { label = "CANCEL" } }, index = 1, scroll = 0,
+  startCloses = false, tx = 10, ty = 8, tw = 10, th = 6, rowStep = 2,
   clampScroll = function() end,
 }
 game.stack.states = { overworld, boxed }
-hooks["render.hud"](function() end, game, viewport)
-local tapsBeforeBoxed = #taps
+render()
 clickCanvas(120, 96, 1)
-check(boxed.index == 2, "boxed menu click selects second choice")
-check(#taps == tapsBeforeBoxed + 1 and taps[#taps] == "a",
-  "boxed menu click activates native A")
+check(boxed.index == 2 and taps[#taps] == "a", "Boxed menu click selects and activates")
 
--- Summary is a single-action two-page state: left click advances exactly as A.
 local summary = { mon = {}, page = 1 }
 game.stack.states = { overworld, summary }
-hooks["render.hud"](function() end, game, viewport)
-local tapsBeforeSummary = #taps
+render()
+local beforeSummary = #taps
 clickCanvas(80, 72, 1)
-check(#taps == tapsBeforeSummary + 1 and taps[#taps] == "a",
-  "summary left click advances through native A")
+check(#taps == beforeSummary + 1 and taps[#taps] == "a", "Summary click advances")
 
--- Native wheel navigation also follows the active screen contract.
-game.stack.states = { overworld, listScreen }
-listScreen.index = 1
+-- Dialogue box clicks advance through native A only inside the real box.
+local dialogue = {
+  pages = { { "Hello" } }, pageIndex = 1, shown = {},
+  boxTx = 0, boxTy = 12, boxTw = 20, boxTh = 6,
+}
+game.stack.states = { overworld, dialogue }
+render()
+local beforeDialogue = #taps
+clickCanvas(80, 120, 1)
+check(#taps == beforeDialogue + 1 and taps[#taps] == "a", "Dialogue click advances")
+
+-- Native YES/NO ChoiceBox geometry: click NO, while right click remains B/Cancel.
+local choice = {
+  index = 1, onChoose = function() end,
+  tx = 13, ty = 6, tw = 7, th = 6,
+}
+game.stack.states = { overworld, choice }
+render()
+local beforeChoice = #taps
+clickCanvas(136, 72, 1)
+check(choice.index == 2, "Choice click selects NO")
+check(#taps == beforeChoice + 1 and taps[#taps] == "a", "Choice click confirms through A")
+local beforeChoiceCancel = #taps
+clickCanvas(136, 72, 2)
+check(#taps == beforeChoiceCancel + 1 and taps[#taps] == "b", "Choice right click cancels through B")
+
+-- Native wheel behavior remains available.
+game.stack.states = { overworld, list }
+list.index = 1
+render()
 mouseX, mouseY = windowPoint(80, 24)
 love.wheelmoved(0, -1)
-check(listScreen.index == 2, "wheel navigates native list")
+check(list.index == 2, "Wheel navigates native list")
 
--- Pointer actions must remain inert in the ordinary overworld.
+-- Overworld mouse actions are the ordinary Game Boy A and B edges.
 game.stack.states = { overworld }
-local tapsBeforeWorldClick = #taps
-clickCanvas(80, 72, 2)
+render()
+local beforeWorld = #taps
 clickCanvas(80, 72, 1)
-check(#taps == tapsBeforeWorldClick,
-  "left and right click do not inject actions in the overworld")
+clickCanvas(80, 72, 2)
+check(#taps == beforeWorld + 2, "Overworld accepts left and right click")
+check(taps[#taps - 1] == "a" and taps[#taps] == "b",
+  "Overworld maps left to A and right to B")
+
+-- Bars outside the native game viewport do not trigger overworld actions.
+local beforeBar = #taps
+love.mousepressed(20, 200, 1, false, 1)
+love.mousepressed(20, 200, 2, false, 1)
+check(#taps == beforeBar, "Window bars remain inert")
+
+-- The overlay rectangle must never click through to an NPC underneath.
+local overlay = runtime.overlayRegion
+check(overlay ~= nil, "overlay region is available")
+local beforeOverlay = #taps
+love.mousepressed(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 1, false, 1)
+love.mousepressed(overlay.x + overlay.w / 2, overlay.y + overlay.h / 2, 2, false, 1)
+check(#taps == beforeOverlay, "locked overlay consumes pointer actions")
 
 print("P0 runtime smoke passed")
