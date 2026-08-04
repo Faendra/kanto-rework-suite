@@ -23,8 +23,28 @@ jobs:
           find packages/kanto_rework_core/core -name '*.lua' -print0 \
             | xargs -0 -n1 npx --yes luaparse -q
       - run: python tools/build_core.py
-      - uses: actions/upload-artifact@v4
+      - name: Verify import archive root
+        run: |
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive = next(pathlib.Path('dist').glob('kanto_rework_core-*.zip'))
+          with zipfile.ZipFile(archive) as z:
+              names = z.namelist()
+              assert 'manifest.json' in names, names
+              assert not any(name.startswith('kanto_rework_core/') for name in names), names
+              json.loads(z.read('manifest.json'))
+          print(f'validated {archive}')
+          PY
+      - name: Upload directly importable package
+        uses: actions/upload-artifact@v4
         with:
-          name: kanto-rework-core-p0
+          name: kanto_rework_core-p0
+          path: packages/kanto_rework_core/
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload exact release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanto_rework_core-release-zip
           path: dist/kanto_rework_core-*.zip
           if-no-files-found: error
