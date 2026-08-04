@@ -24,7 +24,7 @@ return function(deps)
 
   local function isOverworld(state)
     local current = game()
-    return state == nil or (current and current.overworld and state == current.overworld)
+    return state ~= nil and current and current.overworld and state == current.overworld
   end
 
   local function windowToCanvas(x, y)
@@ -148,6 +148,28 @@ return function(deps)
     return "index", itemIndex, count
   end
 
+  local function looksLikeChoice(state)
+    return type(state) == "table"
+      and type(state.index) == "number"
+      and type(state.onChoose) == "function"
+      and type(state.tx) == "number"
+      and type(state.ty) == "number"
+      and type(state.tw) == "number"
+      and type(state.th) == "number"
+      and state.items == nil and state.rows == nil
+  end
+
+  local function choiceTarget(state, ux, uy)
+    if state.pending ~= nil then return nil end
+    local left, right = state.tx * 8, (state.tx + state.tw) * 8
+    if ux < left or ux > right then return nil end
+    local yesY = (state.ty + 1) * 8
+    local noY = (state.ty + 3) * 8
+    if uy >= yesY - 6 and uy <= yesY + 10 then return "index", 1, 2 end
+    if uy >= noY - 6 and uy <= noY + 10 then return "index", 2, 2 end
+    return nil
+  end
+
   local function looksLikeSummary(state)
     return type(state) == "table"
       and state.mon ~= nil
@@ -155,11 +177,33 @@ return function(deps)
       and state.items == nil and state.rows == nil
   end
 
+  local function looksLikeTextBox(state)
+    return type(state) == "table"
+      and type(state.pages) == "table"
+      and type(state.pageIndex) == "number"
+      and type(state.boxTx) == "number"
+      and type(state.boxTy) == "number"
+      and type(state.boxTw) == "number"
+      and type(state.boxTh) == "number"
+      and state.items == nil and state.rows == nil
+  end
+
+  local function textBoxTarget(state, ux, uy)
+    local left, right = state.boxTx * 8, (state.boxTx + state.boxTw) * 8
+    local top, bottom = state.boxTy * 8, (state.boxTy + state.boxTh) * 8
+    if ux >= left and ux <= right and uy >= top and uy <= bottom then
+      return "advance", 1, 1
+    end
+    return nil
+  end
+
   local function targetAt(state, ux, uy)
     if looksLikeParty(state) then return partyTarget(state, ux, uy) end
     if looksLikeList(state) then return listTarget(state, ux, uy) end
     if looksLikeOptionRows(state) then return optionTarget(state, ux, uy) end
     if looksLikeBoxedMenu(state) then return boxedMenuTarget(state, ux, uy) end
+    if looksLikeChoice(state) then return choiceTarget(state, ux, uy) end
+    if looksLikeTextBox(state) then return textBoxTarget(state, ux, uy) end
     if looksLikeSummary(state) and ux >= 0 and ux <= 160 and uy >= 0 and uy <= 144 then
       return "advance", 1, 1
     end
@@ -181,9 +225,17 @@ return function(deps)
     return true
   end
 
+  function Native.isOverworld()
+    return isOverworld(topState())
+  end
+
+  function Native.inGameViewport(x, y)
+    return windowToCanvas(x, y) ~= nil
+  end
+
   function Native.hover(x, y)
     local state = topState()
-    if isOverworld(state) then return false end
+    if not state or isOverworld(state) then return false end
     local supported = presenter.isSupportedStartMenu(game())
     if supported then return false end
     local ux, uy = windowToCanvas(x, y)
@@ -195,7 +247,7 @@ return function(deps)
 
   function Native.activate(x, y)
     local state = topState()
-    if isOverworld(state) then return false end
+    if not state or isOverworld(state) then return false end
     local supported = presenter.isSupportedStartMenu(game())
     if supported then return false end
     local ux, uy = windowToCanvas(x, y)
@@ -208,7 +260,7 @@ return function(deps)
   function Native.wheel(dy)
     if dy == 0 then return false end
     local state = topState()
-    if isOverworld(state) then return false end
+    if not state or isOverworld(state) then return false end
     local supported = presenter.isSupportedStartMenu(game())
     if supported then return false end
 
@@ -241,16 +293,22 @@ return function(deps)
       state.index = ((state.index or 1) - 1 + delta) % #state.items + 1
       if type(state.clampScroll) == "function" then state:clampScroll() end
       return true
+    elseif looksLikeChoice(state) then
+      state.index = state.index == 1 and 2 or 1
+      return true
     end
     return false
   end
 
   function Native.kind()
     local state = topState()
+    if isOverworld(state) then return "overworld" end
     if looksLikeParty(state) then return "party" end
     if looksLikeList(state) then return "list" end
     if looksLikeOptionRows(state) then return "options" end
     if looksLikeBoxedMenu(state) then return "menu" end
+    if looksLikeChoice(state) then return "choice" end
+    if looksLikeTextBox(state) then return "dialogue" end
     if looksLikeSummary(state) then return "summary" end
     return nil
   end
