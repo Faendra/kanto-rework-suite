@@ -5,6 +5,17 @@ return function(deps)
   local Layout = assert(deps.Layout)
   local persist = assert(deps.persist)
 
+  local nativeChunk, nativeError = love.filesystem.load(
+    mod.path .. "/core/native_pointer.lua")
+  assert(nativeChunk, nativeError or "Unable to load native pointer adapters")
+  local createNativePointer = nativeChunk()
+  local native = createNativePointer({
+    mod = mod,
+    runtime = runtime,
+    presenter = presenter,
+  })
+  runtime.nativePointer = native
+
   local function game()
     return runtime.game
   end
@@ -194,7 +205,8 @@ return function(deps)
     end
     if button ~= 1 then return false end
     if beginDrag(region, x, y) then return true end
-    return selectRow(region, true)
+    if selectRow(region, true) then return true end
+    return native.activate(x, y)
   end
 
   runtime.handlers.mousereleased = function(_, _, button)
@@ -204,7 +216,8 @@ return function(deps)
 
   runtime.handlers.mousemoved = function(x, y)
     runtime.lastInput = "mouse"
-    updateHover(x, y)
+    local region = updateHover(x, y)
+    if not region then native.hover(x, y) end
     dragTo(x, y)
   end
 
@@ -213,13 +226,13 @@ return function(deps)
     local x, y = love.mouse.getPosition()
     local region = updateHover(x, y)
     local ok, state = supportedMenu()
-    if not ok or not region or region.kind ~= "menu_row" or dy == 0 then
-      return false
+    if ok and region and region.kind == "menu_row" and dy ~= 0 then
+      local delta = dy > 0 and -1 or 1
+      state.index = math.max(1, math.min(#state.items, state.index + delta))
+      if state.clampScroll then state:clampScroll() end
+      return true
     end
-    local delta = dy > 0 and -1 or 1
-    state.index = math.max(1, math.min(#state.items, state.index + delta))
-    if state.clampScroll then state:clampScroll() end
-    return true
+    return native.wheel(dy)
   end
 
   runtime.handlers.touchpressed = function(id, x, y)
@@ -227,13 +240,15 @@ return function(deps)
     runtime.touchId = id
     local region = updateHover(x, y)
     if beginDrag(region, x, y) then return true end
-    return selectRow(region, true)
+    if selectRow(region, true) then return true end
+    return native.activate(x, y)
   end
 
   runtime.handlers.touchmoved = function(id, x, y)
     if runtime.touchId ~= id then return end
     runtime.lastInput = "touch"
-    updateHover(x, y)
+    local region = updateHover(x, y)
+    if not region then native.hover(x, y) end
     dragTo(x, y)
   end
 
