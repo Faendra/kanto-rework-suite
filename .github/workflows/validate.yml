@@ -15,6 +15,12 @@ jobs:
       - run: python -m pip install --disable-pip-version-check pytest
       - run: python tools/validate_package.py
       - run: python -m pytest -q
+      - name: Install Lua runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.4
+      - name: Run released Start-menu smoke test
+        run: lua5.4 tests/p0_runtime_smoke.lua packages/kanto_rework_core
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -32,7 +38,8 @@ jobs:
               names = z.namelist()
               assert 'manifest.json' in names, names
               assert not any(name.startswith('kanto_rework_core/') for name in names), names
-              json.loads(z.read('manifest.json'))
+              manifest = json.loads(z.read('manifest.json'))
+              assert manifest['version'] == '0.0.4', manifest
           print(f'validated {archive}')
           PY
       - name: Upload directly importable package
