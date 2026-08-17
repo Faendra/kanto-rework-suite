@@ -1,0 +1,61 @@
+name: Validate P0 package
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install --disable-pip-version-check pytest
+      - run: python tools/validate_package.py
+      - run: python -m pytest -q
+      - name: Install Lua runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y lua5.4
+      - name: Run P0 runtime smoke tests
+        run: |
+          lua5.4 tests/p0_runtime_smoke.lua packages/kanto_rework_core
+          lua5.4 tests/p0_manager_wheel_smoke.lua packages/kanto_rework_core
+          lua5.4 tests/p0_battle_pointer_smoke.lua packages/kanto_rework_core
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx --yes luaparse -q packages/kanto_rework_core/main.lua
+      - run: |
+          find packages/kanto_rework_core/core -name '*.lua' -print0 \
+            | xargs -0 -n1 npx --yes luaparse -q
+      - run: python tools/build_core.py
+      - name: Verify import archive root
+        run: |
+          python - <<'PY'
+          import json, pathlib, zipfile
+          archive = next(pathlib.Path('dist').glob('kanto_rework_core-*.zip'))
+          expected_version = archive.stem.removeprefix('kanto_rework_core-')
+          with zipfile.ZipFile(archive) as z:
+              names = z.namelist()
+              assert 'manifest.json' in names, names
+              assert not any(name.startswith('kanto_rework_core/') for name in names), names
+              manifest = json.loads(z.read('manifest.json'))
+              assert manifest['version'] == expected_version, manifest
+          print(f'validated {archive}')
+          PY
+      - name: Upload directly importable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanto_rework_core-p0
+          path: packages/kanto_rework_core/
+          if-no-files-found: error
+          include-hidden-files: true
+      - name: Upload exact release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: kanto_rework_core-release-zip
+          path: dist/kanto_rework_core-*.zip
+          if-no-files-found: error

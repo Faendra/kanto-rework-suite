@@ -1,0 +1,19 @@
+{
+  "id": "kanto_rework_core",
+  "name": "Kanto Rework Core (P0)",
+  "version": "0.0.9",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "overhaul",
+  "category": "UI",
+  "priority": 120,
+  "game_version": ">=0.1.51 <2.0.0",
+  "github": "Faendra/kanto-rework-suite",
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": ["gen1_modern_ui"],
+  "permissions": ["filesystem", "engine_internals"],
+  "experimental": true,
+  "affects_link": false,
+  "description": "P0.0.9 runtime test: mouse-wheel support in the mod manager, calibrated anchored choices, and classic/wide battle mouse controls."
+}
