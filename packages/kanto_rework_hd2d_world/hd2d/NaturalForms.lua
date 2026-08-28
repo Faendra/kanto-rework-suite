@@ -26,11 +26,18 @@ local CARD_SHAPE = {
   { -0.50, 0.27 }, { -0.50, -0.27 },
 }
 
+local BOULDER_SHAPE = {
+  { -0.23, -0.43 }, { 0.23, -0.43 },
+  { 0.43, -0.23 }, { 0.43, 0.23 },
+  { 0.23, 0.43 }, { -0.23, 0.43 },
+  { -0.43, 0.23 }, { -0.43, -0.23 },
+}
+
 local function ensureMesh(renderer)
   if renderer.naturalFormMesh then return renderer.naturalFormMesh end
   if not (love and love.graphics and love.graphics.newMesh) then return nil end
   local seed = {}
-  for i = 1, #CARD_SHAPE do
+  for i = 1, 8 do
     seed[i] = { 0, 0, 0, 0, 1, 1, 1, 1 }
   end
   local ok, mesh = pcall(love.graphics.newMesh, seed, "fan", "dynamic")
@@ -123,6 +130,76 @@ local function drawTexturedCard(renderer, proj, cmd,
   return true
 end
 
+local function drawTexturedBoulder(renderer, proj, cmd, variationValue)
+  local rect = sourceRect(renderer, cmd.x, cmd.y)
+  local mesh = rect and ensureMesh(renderer) or nil
+  if not (mesh and mesh.setVertices and mesh.setTexture and renderer.source) then
+    return false
+  end
+
+  local cx, cy = cmd.x + 0.5, cmd.y + 0.5
+  local scale = proj.screenScale and proj:screenScale(cx, cy, 0)
+                or proj.tileW or 1
+  local targetSide = scale * (0.30 + variationValue * 0.045)
+  local height = heightForScreen(proj, cx, cy, targetSide, 0.42)
+  local footprint = 0.90 + variationValue * 0.08
+  local base, top = {}, {}
+
+  for i, p in ipairs(BOULDER_SHAPE) do
+    local wx = cx + p[1] * footprint
+    local wy = cy + p[2] * footprint
+    local bx, by = proj:cell(wx, wy, 0.008)
+    local tx, ty = proj:cell(wx, wy, height)
+    base[i] = { bx, by }
+    top[i] = { tx, ty }
+  end
+
+  local centerX, centerY = proj:cell(cx, cy, 0.004)
+  love.graphics.setColor(0, 0, 0, 0.13)
+  love.graphics.ellipse("fill", centerX, centerY + 1,
+                        scale * 0.34, scale * 0.11)
+
+  -- Draw only the screen-front side facets. Each cell keeps a gap to the next,
+  -- so long collision boundaries read as individual boulders rather than one wall.
+  local edges = {}
+  for i = 1, #BOULDER_SHAPE do
+    local j = i % #BOULDER_SHAPE + 1
+    edges[#edges + 1] = {
+      i = i, j = j,
+      score = (base[i][2] + base[j][2]) * 0.5,
+    }
+  end
+  table.sort(edges, function(a, b) return a.score > b.score end)
+  for n = 1, 4 do
+    local e = edges[n]
+    local i, j = e.i, e.j
+    local shade = 0.34 + (n - 1) * 0.025
+    love.graphics.setColor(shade, shade * 1.03, shade * 1.01, 1)
+    love.graphics.polygon("fill",
+      base[i][1], base[i][2], base[j][1], base[j][2],
+      top[j][1], top[j][2], top[i][1], top[i][2])
+  end
+
+  local sx, sy, sw, sh = rect[1], rect[2], rect[3], rect[4]
+  local vertices = {}
+  for i, p in ipairs(BOULDER_SHAPE) do
+    vertices[i] = {
+      top[i][1], top[i][2],
+      (sx + (p[1] + 0.5) * sw) / renderer.sourceW,
+      (sy + (p[2] + 0.5) * sh) / renderer.sourceH,
+      1, 1, 1, 1,
+    }
+  end
+  local ok = pcall(function()
+    mesh:setVertices(vertices)
+    mesh:setTexture(renderer.source)
+  end)
+  if not ok then return false end
+  love.graphics.setColor(0.98, 0.99, 0.97, 1)
+  love.graphics.draw(mesh)
+  return true
+end
+
 local function variation(cmd)
   local x = math.floor(tonumber(cmd and cmd.x) or 0)
   local y = math.floor(tonumber(cmd and cmd.y) or 0)
@@ -169,13 +246,10 @@ function NaturalForms.apply(renderer)
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
     -- SceneRenderer passes >=0.17 only for continuous boundary families.
     -- Obstacles remain shallow prisms; boundaries become discrete textured
-    -- upright forms so a long Route 1 edge cannot become one grey retaining wall.
+    -- boulders so a long Route 1 edge cannot become one grey retaining wall.
     if (tonumber(height) or 0) >= 0.17 then
       local v = variation(cmd)
-      local ratio = 0.78 + v * 0.09
-      local cardW = 0.74 + v * 0.09
-      if drawTexturedCard(self, proj, cmd, ratio, cardW,
-                          { 0.95, 0.97, 0.94 }, 0.72) then
+      if drawTexturedBoulder(self, proj, cmd, v) then
         self.lastNaturalBoundaryCards =
           (self.lastNaturalBoundaryCards or 0) + 1
         return true
