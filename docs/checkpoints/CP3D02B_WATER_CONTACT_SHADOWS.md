@@ -1,12 +1,14 @@
 # CP3D02B — Water material and contact shadows
 
-Status: IMPLEMENTED / GEN1RECOMP v0.2.32 CI GATES PASS / RUNTIME VISUAL NOT TESTED
+Status: IMPLEMENTED / HEADLESS RENDER GATE PASS / RUNTIME VISUAL NOT TESTED
 Branch: `experiment/sol-3dworld-hd2d`
 Engine target: Gen1Recomp v0.2.32
 Parent visual checkpoint: CP3D02A
 Related continuity checkpoint: CP3D02C
 Implementation commit: `3308770eb5023145ca2e845115eea2a9113820be`
-CI run: `33173036196`
+Headless-render test commit: `b20f143662c544dfc00b8221688316cca6f50015`
+Implementation CI run: `33173036196`
+Headless-render CI run: `33173275154`
 
 ## Objective
 
@@ -80,7 +82,9 @@ Water modulation and contact shadows are generated inside the existing world geo
 
 ## Automated validation
 
-GitHub Actions run `33173036196` completed successfully for implementation commit `3308770eb5023145ca2e845115eea2a9113820be`.
+### Implementation gate — run `33173036196`
+
+GitHub Actions completed successfully for implementation commit `3308770eb5023145ca2e845115eea2a9113820be`.
 
 Passed jobs:
 
@@ -93,7 +97,34 @@ Passed jobs:
    - KRS pipeline registration/selection and clean no-overworld fallback gate;
    - loader diagnostic upload.
 
-These gates prove source/manifest integrity and headless loader compatibility for this commit. They do **not** prove OpenGL rendering, shader compilation, visual quality, gameplay parity or performance on the user's Windows machine.
+### Headless renderer gate — run `33173275154`
+
+The loader test was then strengthened in commit `b20f143662c544dfc00b8221688316cca6f50015` so it no longer stops at the no-overworld fallback.
+
+After the package has been loaded through Gen1Recomp's official loader, the test now injects a synthetic read-only rendering snapshot containing:
+
+- a Pallet Town signature with an authored building component;
+- edge vegetation;
+- active-map water with a 4×4 detail raster;
+- a directly connected Route 21-style neighbor;
+- neighbor water without `tileDetailRows`, exercising the CP3D02B 2×2 fallback material path.
+
+It calls `Renderer:update()` and a real `Renderer:drawWorld()` under the upstream LOVE headless stub, augmented only with no-op polygon/ellipse primitives. The test requires a returned Canvas and asserts that the following runtime paths were actually exercised:
+
+- cells;
+- water cells;
+- direct-neighbor cells;
+- authored structures;
+- vegetation;
+- contact-shadow caster accounting;
+- material clock advancement.
+
+Both jobs completed successfully:
+
+- `Lua syntax + manifest`: PASS;
+- `Gen1Recomp v0.2.32 loader`: PASS, including the synthetic renderer execution.
+
+This is materially stronger than a loader-only check because CP3D02B's renderer code now executes headlessly after official mod loading. It still does **not** rasterize real pixels and therefore does not prove OpenGL rendering, shader compilation, visual quality, gameplay parity or performance on the user's Windows machine.
 
 ## Known limitations
 
@@ -105,6 +136,7 @@ These gates prove source/manifest integrity and headless loader compatibility fo
 6. Contact shadows are presentation cues, not gameplay lighting. They do not infer occlusion from a real light source or shadow map.
 7. `waterCells` and `shadowCasters` are draw diagnostics, not GPU timings.
 8. No additional GPU pass was added, but the increased polygon count from animated water subdivisions and contact footprints still requires measurement.
+9. The headless renderer gate proves code-path execution but not pixel output because the LOVE polygon/ellipse calls are deliberately no-ops in CI.
 
 ## Required runtime acceptance tests
 
@@ -141,7 +173,7 @@ These gates prove source/manifest integrity and headless loader compatibility fo
 
 **Not SAFE for visual release yet.**
 
-The implementation passes the branch's Gen1Recomp v0.2.32 automated gates, but visual acceptance and real frame-cost measurements remain mandatory before CP3D02B can be promoted from code checkpoint to validated rendering checkpoint.
+The implementation now passes syntax, manifest, official-loader and synthetic headless-render execution gates against Gen1Recomp v0.2.32. Visual acceptance and real frame-cost measurements remain mandatory before CP3D02B can be promoted from code checkpoint to validated rendering checkpoint.
 
 ## Next
 
