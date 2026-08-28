@@ -13,6 +13,20 @@ love.graphics.polygon = love.graphics.polygon or function() end
 love.graphics.ellipse = love.graphics.ellipse or function() end
 love.graphics.rectangle = love.graphics.rectangle or function() end
 
+-- Real LÖVE Quads expose :setViewport; Gen1Recomp's headless stub only needs
+-- immutable quads for its own tests and therefore omits that method. Preserve
+-- the upstream constructor and add a no-op method solely to headless table
+-- quads so our reusable-quad path can be exercised without pretending to
+-- rasterize anything.
+local upstreamNewQuad = love.graphics.newQuad
+love.graphics.newQuad = function(...)
+  local quad = upstreamNewQuad(...)
+  if type(quad) == "table" and type(quad.setViewport) ~= "function" then
+    quad.setViewport = function() end
+  end
+  return quad
+end
+
 local Loader = require("src.mods.Loader")
 local Pipelines = require("src.render.Pipelines")
 
