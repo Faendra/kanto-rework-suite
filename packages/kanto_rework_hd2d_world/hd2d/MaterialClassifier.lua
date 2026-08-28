@@ -3,6 +3,15 @@ local MaterialClassifier = {}
 local MASS_CACHE = setmetatable({}, { __mode = "k" })
 local DIRS = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} }
 
+-- These are the Gen I tilesets whose repeated blocked masses are most likely
+-- vegetation rather than masonry. Structure detection still wins whenever a
+-- real traversal threshold touches the mass, so houses in OVERWORLD maps do
+-- not get promoted to trees.
+local VEGETATION_TILESETS = {
+  OVERWORLD = true,
+  FOREST = true,
+}
+
 local function safeCall(object, method, ...)
   if not object or type(object[method]) ~= "function" then return nil end
   local ok, value = pcall(object[method], object, ...)
@@ -15,6 +24,11 @@ local function inBounds(map, cx, cy)
   if value ~= nil then return value end
   local w, h = tonumber(map and map.widthCells), tonumber(map and map.heightCells)
   return w and h and cx >= 0 and cy >= 0 and cx < w and cy < h or false
+end
+
+local function tilesetName(map)
+  local def = map and map.def
+  return def and def.tileset or nil
 end
 
 function MaterialClassifier.isTraversalThreshold(map, cx, cy)
@@ -54,10 +68,23 @@ local function warpAdjacent(map, cx, cy)
   return false
 end
 
-local function familyFor(component, width, height)
+local function familyFor(component, map)
   if component.warpEdges > 0 and component.size >= 3 then
     return "structure", 1.75
   end
+
+  -- A repeated collision-tile signature inside a natural tileset is strong
+  -- evidence for one repeated landscape motif (tree wall / forest mass).
+  -- This stays data-derived: no map id or block id is authored here.
+  if VEGETATION_TILESETS[tilesetName(map)] and component.size >= 4 then
+    local repeatRatio = component.repeatRatio or 0
+    if repeatRatio >= 0.45
+       and (component.touchesEdge
+            or (component.size >= 6 and (component.density or 0) >= 0.45)) then
+      return "vegetation", 1.42
+    end
+  end
+
   if component.touchesEdge and component.size >= 4 then
     return "boundary", 1.28
   end
@@ -65,11 +92,7 @@ local function familyFor(component, width, height)
     return "obstacle", 0.72
   end
 
-  local spanX = component.maxX - component.minX + 1
-  local spanY = component.maxY - component.minY + 1
-  local boxArea = math.max(1, spanX * spanY)
-  local density = component.size / boxArea
-  if component.size >= 6 and density >= 0.66 then
+  if component.size >= 6 and (component.density or 0) >= 0.66 then
     return "landmark", 1.18
   end
   return "mass", 1.0
@@ -101,6 +124,9 @@ local function buildMassCache(map)
           minY = cy, maxY = cy,
           touchesEdge = false,
           warpEdges = 0,
+          dominantTile = nil,
+          dominantCount = 0,
+          tileCounts = {},
           cells = {},
         }
         local queue = { {cx, cy} }
@@ -125,6 +151,16 @@ local function buildMassCache(map)
             component.warpEdges = component.warpEdges + 1
           end
 
+          local tile = safeCall(map, "cellTile", x, y)
+          if tile ~= nil then
+            local count = (component.tileCounts[tile] or 0) + 1
+            component.tileCounts[tile] = count
+            if count > component.dominantCount then
+              component.dominantTile = tile
+              component.dominantCount = count
+            end
+          end
+
           for _, d in ipairs(DIRS) do
             local nx, ny = x + d[1], y + d[2]
             if nx >= 0 and ny >= 0 and nx < width and ny < height then
@@ -137,12 +173,21 @@ local function buildMassCache(map)
           end
         end
 
-        component.family, component.heightScale = familyFor(component, width, height)
+        local spanX = component.maxX - component.minX + 1
+        local spanY = component.maxY - component.minY + 1
+        component.spanX = spanX
+        component.spanY = spanY
+        component.boxArea = math.max(1, spanX * spanY)
+        component.density = component.size / component.boxArea
+        component.repeatRatio = component.dominantCount / math.max(1, component.size)
+        component.family, component.heightScale = familyFor(component, map)
+
         entry.masses[massId] = component
         for _, key in ipairs(component.cells) do
           entry.massAt[key] = component
         end
         component.cells = nil
+        component.tileCounts = nil
       end
     end
   end
