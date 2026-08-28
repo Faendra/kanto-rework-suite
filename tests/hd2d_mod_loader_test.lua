@@ -146,7 +146,7 @@ local map = {
   isGrassCell = function(_, x, y) return y == 5 and x >= 2 and x <= 4 end,
   isWalkableCell = function(_, x, y)
     if y == 7 then return false end
-    return not (x == 3 and y == 3)
+    return not (y == 3 and x >= 2 and x <= 4)
   end,
 }
 
@@ -202,8 +202,12 @@ assert(drawCounts.current >= 2, "current map renderer was not captured")
 assert(drawCounts.neighbor >= 1, "connected-neighbour renderer was not captured")
 assert(exports.relief.lastScenes >= 2,
   "connected-neighbour semantic relief pass did not visit both scenes")
-assert(exports.relief.lastCells >= 2,
-  "connected-neighbour semantic relief did not classify raised cells")
+assert(exports.relief.lastCells >= 4,
+  "connected-neighbour semantic relief did not classify all raised cells")
+assert(exports.relief.lastTopRuns > 0,
+  "continuous semantic top-surface pass did not draw any runs")
+assert(exports.relief.lastTopRuns < exports.relief.lastCells,
+  "contiguous raised cells were not merged into wider top-surface runs")
 assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute")
 assert(exports.occlusion.overlays >= 1, "tall-grass overlay was not composited")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
