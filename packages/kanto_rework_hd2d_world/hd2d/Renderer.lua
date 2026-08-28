@@ -9,6 +9,12 @@ local function finite(v)
   return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
 end
 
+local function clamp(v, lo, hi)
+  if v < lo then return lo end
+  if v > hi then return hi end
+  return v
+end
+
 local function normalizeColor(c, fallback)
   if type(c) ~= "table" then return fallback end
   local r, g, b = c[1], c[2], c[3]
@@ -191,9 +197,6 @@ function Renderer:drawSolidRelief(ctx, proj)
         -- surface. This preserves animated/custom tiles and palette packs.
         local sx = wx - proj.camX
         local sy = wy - proj.bgY
-        -- Only lift a complete 16x16 source cell. Edge-clipped cells stay on
-        -- the base plane for this frame; this avoids stretching a partial cell
-        -- as the camera scrolls by sub-cell amounts.
         if sx >= 0 and sy >= 0
            and sx + CELL <= self.sourceW and sy + CELL <= self.sourceH then
           self.cellQuad:setViewport(sx, sy, CELL, CELL, self.sourceW, self.sourceH)
@@ -212,9 +215,12 @@ local function actorPose(actor)
   if not actor or type(actor.pose) ~= "function" then return nil end
   local ok, sprite, px, py, facing, phase, flip, hopping = pcall(actor.pose, actor)
   if not ok or not sprite or not finite(px) or not finite(py) then return nil end
+  local basePx = finite(actor.px) and actor.px or px
+  local basePy = finite(actor.py) and actor.py or py
   return {
-    actor = actor, sprite = sprite, px = px, py = py, facing = facing,
-    phase = phase, flip = flip, hopping = hopping,
+    actor = actor, sprite = sprite, px = px, py = py,
+    basePx = basePx, basePy = basePy,
+    facing = facing, phase = phase, flip = flip, hopping = hopping,
   }
 end
 
@@ -235,25 +241,29 @@ function Renderer:collectActors(state)
     end
   end
   table.sort(out, function(a, b)
-    local ay = a.py + (a.oy or 0)
-    local by = b.py + (b.oy or 0)
+    local ay = a.basePy + (a.oy or 0)
+    local by = b.basePy + (b.oy or 0)
     if ay ~= by then return ay < by end
     return tostring(a.actor.id or "") < tostring(b.actor.id or "")
   end)
   return out
 end
 
-function Renderer:drawShadow(proj, row)
-  local wx = row.px + (row.ox or 0) + 8
-  local wy = row.py + (row.oy or 0) + 16
-  local sx, sy, depth = proj:projectWorld(wx, wy, 0)
-  love.graphics.setColor(0, 0, 0, 0.18)
+function Renderer:drawShadow(proj, row, surfaceZ)
+  surfaceZ = tonumber(surfaceZ) or 0
+  local wx = row.basePx + (row.ox or 0) + 8
+  local wy = row.basePy + (row.oy or 0) + 16
+  local sx, sy, depth = proj:projectWorld(wx, wy, surfaceZ)
+  local lift = row.hopping and math.max(0, row.basePy - row.py) or 0
+  local alpha = clamp(0.18 - lift * 0.007, 0.09, 0.18)
+  local spread = 1 + math.min(lift, 12) * 0.018
+  love.graphics.setColor(0, 0, 0, alpha)
   love.graphics.ellipse("fill", sx, sy - proj.scale * 0.7,
-                        5.2 * proj.scale * depth,
-                        1.7 * proj.scale)
+                        5.2 * proj.scale * depth * spread,
+                        1.7 * proj.scale * spread)
 end
 
-function Renderer:drawActor(proj, row)
+function Renderer:drawActor(proj, row, surfaceZ)
   local sprite = row.sprite
   if type(sprite.getPoseGeometry) ~= "function"
      or type(sprite.resolveImage) ~= "function" then return end
@@ -262,9 +272,19 @@ function Renderer:drawActor(proj, row)
   local okImage, image = pcall(sprite.resolveImage, sprite)
   if not okGeom or not okImage or not geom or not image then return end
 
+  surfaceZ = tonumber(surfaceZ) or 0
   local wx = row.px + (row.ox or 0) + 8
-  local wy = row.py + (row.oy or 0) + 12
-  local sx, sy = proj:projectWorld(wx, wy, 0)
+  local wy
+  local lift = 0
+  if row.hopping then
+    -- Player:pose returns a screen-Y arc plus hopping=true specifically so a
+    -- 3D renderer can convert that cosmetic offset into vertical elevation.
+    wy = row.basePy + (row.oy or 0) + 12
+    lift = math.max(0, row.basePy - row.py)
+  else
+    wy = row.py + (row.oy or 0) + 12
+  end
+  local sx, sy = proj:projectWorld(wx, wy, surfaceZ + lift)
   local scale = proj.scale
   local x = sx - (geom.anchorX or geom.width * 0.5) * scale
   local y = sy - (geom.anchorY or geom.height) * scale
@@ -279,8 +299,8 @@ end
 
 function Renderer:drawActors(ctx, proj)
   local rows = self:collectActors(ctx.state)
-  for _, row in ipairs(rows) do self:drawShadow(proj, row) end
-  for _, row in ipairs(rows) do self:drawActor(proj, row) end
+  for _, row in ipairs(rows) do self:drawShadow(proj, row, 0) end
+  for _, row in ipairs(rows) do self:drawActor(proj, row, 0) end
 end
 
 function Renderer:drawWaterLight(ctx, proj)
