@@ -83,6 +83,134 @@ renderer.drawActors = function(self, ctx, proj)
   return depthComposer:draw(self, ctx, proj)
 end
 
+-- Final semantic polish. Relief already replaces the flat blocked source tiles,
+-- but strip projection shears neighbouring rows by sub-cell amounts. A small
+-- terrain-texture overscan hides those seams underneath the volume. Vegetation
+-- then receives one upright source-textured billboard at its exposed front row:
+-- north/south collision depth no longer becomes a tower of tilted tile slabs,
+-- while the original Pokémon pixel texture stays visible in the canopy.
+local CELL = 16
+local POLISH_DONORS = {
+  { 0, 1 }, { -1, 0 }, { 1, 0 }, { 0, -1 },
+  { -1, 1 }, { 1, 1 }, { -2, 0 }, { 2, 0 },
+}
+
+local function polishDonor(map, cx, cy)
+  local grass
+  for _, d in ipairs(POLISH_DONORS) do
+    local nx, ny = cx + d[1], cy + d[2]
+    local material = MaterialClassifier.classify(map, nx, ny)
+    if material.kind == "ground" then return nx, ny end
+    if not grass and material.kind == "grass" then grass = { nx, ny } end
+  end
+  if grass then return grass[1], grass[2] end
+  return nil
+end
+
+local function drawPolishMask(host, ctx, proj, map, cx, cy, ox, oy)
+  local donorX, donorY = polishDonor(map, cx, cy)
+  if not donorX then return false end
+  local sourceX = donorX * CELL + ox - proj.camX
+  local sourceY = donorY * CELL + oy - proj.bgY
+  if sourceX < 0 or sourceY < 0
+     or sourceX + CELL > host.sourceW or sourceY + CELL > host.sourceH then
+    return false
+  end
+
+  host.cellQuad:setViewport(sourceX, sourceY, CELL, CELL,
+                            host.sourceW, host.sourceH)
+  local metrics = proj:cellMetrics(cx * CELL + ox, cy * CELL + oy, CELL, 0)
+  local padX = math.max(1.0, math.abs(proj.shear or 0) * CELL * (proj.scale or 1) * 0.75)
+  local padY = math.max(0.6, (proj.scale or 1) * 0.20)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(host.source, host.cellQuad,
+                     metrics.x - padX, metrics.y - padY,
+                     0,
+                     (metrics.width + padX * 2) / CELL,
+                     (metrics.height + padY * 2) / CELL)
+  return true
+end
+
+local function drawVegetationBillboard(host, proj, wx0, wx1, sourceY, baselineY, baseZ)
+  local runW = wx1 - wx0
+  if runW <= 0 then return false end
+  local sx = wx0 - proj.camX
+  local sy = sourceY - proj.bgY
+  if sx < 0 or sy < 0 or sx + runW > host.sourceW or sy + CELL > host.sourceH then
+    return false
+  end
+
+  host.cellQuad:setViewport(sx, sy, runW, CELL, host.sourceW, host.sourceH)
+  local localY = baselineY - proj.bgY
+  local depth = proj:depthScale(localY)
+  local centerX, groundY = proj:projectTerrain(wx0 + runW * 0.5, baselineY, baseZ)
+  local screenW = runW * depth * proj.scale * 1.10
+  local screenH = CELL * proj.scale * 1.08
+  love.graphics.setColor(1, 1, 1, 0.97)
+  love.graphics.draw(host.source, host.cellQuad,
+                     centerX - screenW * 0.5,
+                     groundY - screenH,
+                     0, screenW / runW, screenH / CELL)
+
+  -- A second, smaller crown sample breaks the straight billboard top edge and
+  -- keeps the silhouette closer to a layered HD-2D tree line than a flat card.
+  local crownW = screenW * 0.76
+  local crownH = screenH * 0.42
+  love.graphics.setColor(1, 1, 1, 0.92)
+  love.graphics.draw(host.source, host.cellQuad,
+                     centerX - crownW * 0.5,
+                     groundY - screenH - crownH * 0.40,
+                     0, crownW / runW, crownH / CELL)
+  return true
+end
+
+local baseDrawRow = relief.drawRow
+relief.drawRow = function(self, host, ctx, proj, map, ox, oy, cy, x0, x1)
+  ox, oy = ox or 0, oy or 0
+
+  -- Overscan only solid footprints; this never changes map collision or source
+  -- data and it remains inside the terrain painter row.
+  for cx = x0, x1 do
+    local material = MaterialClassifier.classify(map, cx, cy)
+    if material.kind == "solid" then
+      drawPolishMask(host, ctx, proj, map, cx, cy, ox, oy)
+    end
+  end
+
+  local drawn = baseDrawRow(self, host, ctx, proj, map, ox, oy, cy, x0, x1)
+
+  -- Emit one billboard per contiguous exposed vegetation run after the low
+  -- pedestal/canopy geometry has established its contact plane.
+  local cx = x0
+  while cx <= x1 do
+    local material = MaterialClassifier.classify(map, cx, cy)
+    if material.family == "vegetation"
+       and MaterialClassifier.frontExposed(map, cx, cy) then
+      local startX, endX = cx, cx
+      while endX + 1 <= x1 do
+        local nextMat = MaterialClassifier.classify(map, endX + 1, cy)
+        if nextMat.family ~= "vegetation"
+           or nextMat.massId ~= material.massId
+           or not MaterialClassifier.frontExposed(map, endX + 1, cy) then break end
+        endX = endX + 1
+      end
+      local fullHeight = MaterialClassifier.reliefHeight(material, proj.relief)
+      local pedestal = fullHeight * 0.40
+      drawVegetationBillboard(host, proj,
+                              startX * CELL + ox,
+                              (endX + 1) * CELL + ox,
+                              cy * CELL + oy,
+                              (cy + 1) * CELL + oy + 0.04,
+                              pedestal * 0.18)
+      cx = endX + 1
+    else
+      cx = cx + 1
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  return drawn
+end
+
 local function playerFocusY(canvas, ctx)
   if type(ctx) ~= "table" or not ctx.state or not ctx.state.player
      or not ctx.state.map or not canvas then return nil end
