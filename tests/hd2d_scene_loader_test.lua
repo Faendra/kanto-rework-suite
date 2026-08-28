@@ -139,9 +139,6 @@ local rendererStub = {
   drawMapOnly = function() drawCounts.neighbor = drawCounts.neighbor + 1 end,
   drawCellBottom = function() end,
 }
--- Mirror the public runtime fields exposed by Gen1Recomp TileRenderer.new:
--- `image` is the exact generated tileset atlas and `quads[tileId]` addresses
--- its 8x8 cells. TEST8 must use these rather than needing a flat-map capture.
 rendererStub.image = love.graphics.newCanvas(128, 48)
 rendererStub.quads = {}
 for t = 0, 95 do
@@ -150,8 +147,9 @@ for t = 0, 95 do
                                                 8, 8, 128, 48)
 end
 
-local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
-local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
+-- Verified directly from Pokemon Red generated/tilesets/overworld.png.
+local TREE = { 0x40, 0x41, 0x50, 0x51 }
+local BOULDER = { 0x2A, 0x2B, 0x3A, 0x3B }
 local blocked = {}
 for y = 2, 3 do for x = 2, 4 do blocked[y * 32 + x] = "structure" end end
 for y = 1, 3 do blocked[y * 32 + 7] = "tree" end
@@ -179,8 +177,8 @@ function map:isWalkableCell(x, y)
 end
 function map:cellTile(x, y)
   local kind = blocked[y * 32 + x]
-  if kind == "tree" then return 0x3A end
-  if kind == "boulder" then return 0x50 end
+  if kind == "tree" then return TREE[3] end
+  if kind == "boulder" then return BOULDER[3] end
   if kind == "structure" then return 0x30 end
   if self:isWaterCell(x, y) then return 0x14 end
   return (x == 5 or x == 6) and 0x39 or 0x2C
