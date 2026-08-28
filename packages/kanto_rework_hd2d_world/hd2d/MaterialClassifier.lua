@@ -17,6 +17,12 @@ local function inBounds(map, cx, cy)
   return w and h and cx >= 0 and cy >= 0 and cx < w and cy < h or false
 end
 
+function MaterialClassifier.isTraversalThreshold(map, cx, cy)
+  if not inBounds(map, cx, cy) then return false end
+  return safeCall(map, "isWarpTileCell", cx, cy) == true
+      or safeCall(map, "warpAtCell", cx, cy) ~= nil
+end
+
 -- Raw gameplay-derived material. This intentionally asks the Map object only
 -- for read-only semantics and never infers traversal from the visual result.
 local function rawKind(map, cx, cy)
@@ -26,8 +32,7 @@ local function rawKind(map, cx, cy)
 
   -- A warp/door is a traversal threshold even when a tileset marks its
   -- collision tile unusually. Never raise a visual wall over a real exit.
-  if safeCall(map, "isWarpTileCell", cx, cy)
-     or safeCall(map, "warpAtCell", cx, cy) then
+  if MaterialClassifier.isTraversalThreshold(map, cx, cy) then
     return "ground"
   end
 
@@ -42,11 +47,8 @@ end
 local function warpAdjacent(map, cx, cy)
   for _, d in ipairs(DIRS) do
     local nx, ny = cx + d[1], cy + d[2]
-    if inBounds(map, nx, ny) then
-      if safeCall(map, "isWarpTileCell", nx, ny)
-         or safeCall(map, "warpAtCell", nx, ny) then
-        return true
-      end
+    if MaterialClassifier.isTraversalThreshold(map, nx, ny) then
+      return true
     end
   end
   return false
