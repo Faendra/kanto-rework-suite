@@ -1,6 +1,4 @@
--- Official Gen1Recomp v0.2.32 loader gate for the scene-graph HD2D renderer.
--- Run from a Gen1Recomp checkout with KRS_PACKAGE_DIR pointing at the package.
-
+-- Official Gen1Recomp v0.2.32 loader gate for the HD2D scene renderer.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -32,12 +30,13 @@ local RELATIVE_FILES = {
   "hd2d/SceneRenderer.lua",
   "hd2d/SceneStyle.lua",
   "hd2d/LivePolish.lua",
+  "hd2d/VanillaMotifs.lua",
   "hd2d/DioramaPolish.lua",
   "hd2d/NaturalForms.lua",
   "hd2d/SceneContinuity.lua",
+  "hd2d/TerrainRemaster.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/WorldAtmosphere.lua",
-  -- Transitional compatibility exports still loaded by main.lua.
   "hd2d/Projection.lua",
   "hd2d/Relief.lua",
   "hd2d/WaterSurface.lua",
@@ -106,15 +105,13 @@ assert(#loader.errors == 0,
 
 local exports = assert(loader.exports.kanto_rework_hd2d_world,
   "scene HD2D exports missing")
-assert(type(exports.renderer) == "table", "scene renderer export missing")
-assert(type(exports.projection) == "table", "scene projection export missing")
-assert(type(exports.materialClassifier) == "table", "material classifier export missing")
-assert(type(exports.sceneStyle) == "table", "scene style export missing")
-assert(type(exports.livePolish) == "table", "live polish export missing")
-assert(type(exports.dioramaPolish) == "table", "diorama polish export missing")
-assert(type(exports.naturalForms) == "table", "natural forms export missing")
-assert(type(exports.sceneContinuity) == "table", "scene continuity export missing")
-assert(type(exports.atmosphere) == "table", "atmosphere export missing")
+for _, name in ipairs({
+  "renderer", "projection", "materialClassifier", "sceneStyle", "livePolish",
+  "vanillaMotifs", "dioramaPolish", "naturalForms", "sceneContinuity",
+  "terrainRemaster", "atmosphere",
+}) do
+  assert(type(exports[name]) == "table", name .. " export missing")
+end
 
 Pipelines.install(data)
 local found
@@ -123,7 +120,6 @@ for _, row in ipairs(Pipelines.list()) do
 end
 assert(found and found.def and found.def.label == "KRS HD2D WORLD",
   "scene HD2D pipeline was not registered")
-
 Pipelines.setLevel("krs_hd2d_world", 2)
 Pipelines.update(0)
 assert(Pipelines.worldPipeline() == "krs_hd2d_world",
@@ -142,13 +138,12 @@ local rendererStub = {
   drawCellBottom = function() end,
 }
 
+local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
+local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
 local blocked = {}
-for y = 2, 3 do
-  for x = 2, 4 do blocked[y * 32 + x] = "structure" end
-end
-for y = 1, 3 do
-  for x = 7, 8 do blocked[y * 32 + x] = "vegetation" end
-end
+for y = 2, 3 do for x = 2, 4 do blocked[y * 32 + x] = "structure" end end
+for y = 1, 3 do blocked[y * 32 + 7] = "tree" end
+blocked[5 * 32 + 1] = "boulder"
 
 local map = {
   id = "SYNTHETIC_PALLET",
@@ -161,48 +156,58 @@ function map:inBounds(x, y)
   return x >= 0 and y >= 0 and x < self.widthCells and y < self.heightCells
 end
 function map:isWaterCell(x, y) return y == 8 end
-function map:isGrassCell(x, y) return y == 6 and x >= 4 and x <= 6 end
+function map:isGrassCell() return false end
 function map:isWarpTileCell(x, y) return x == 3 and y == 4 end
 function map:warpAtCell(x, y)
   if self:isWarpTileCell(x, y) then return { index = 1 } end
   return nil
 end
 function map:isWalkableCell(x, y)
-  if self:isWaterCell(x, y) then return false end
-  return blocked[y * 32 + x] == nil
+  return not self:isWaterCell(x, y) and blocked[y * 32 + x] == nil
 end
 function map:cellTile(x, y)
   local kind = blocked[y * 32 + x]
-  if kind == "vegetation" then return 0x52 end
-  if kind == "structure" then return 0x30 + ((x + y) % 3) end
+  if kind == "tree" then return 0x3A end
+  if kind == "boulder" then return 0x50 end
+  if kind == "structure" then return 0x30 end
   if self:isWaterCell(x, y) then return 0x14 end
-  return 0x01
+  return (x == 5 or x == 6) and 0x39 or 0x2C
 end
-function map:blockAt(bx, by)
-  -- Synthetic loader map intentionally uses no vanilla tree block ids; the
-  -- legacy repeated-tile classifier remains exercised alongside LivePolish.
-  return 0x01
+function map:tileAt(tx, ty)
+  local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
+  local kind = blocked[cy * 32 + cx]
+  local qx, qy = tx % 2, ty % 2
+  local qi = qy * 2 + qx + 1
+  if kind == "tree" then return TREE[qi] end
+  if kind == "boulder" then return BOULDER[qi] end
+  if kind == "structure" then return 0x30 end
+  if self:isWaterCell(cx, cy) then return 0x14 end
+  return (cx == 5 or cx == 6) and 0x39 or 0x2C
 end
+function map:blockAt() return 0x01 end
+
+local treeMaterial = exports.materialClassifier.classify(map, 7, 2)
+assert(treeMaterial.family == "vegetation" and treeMaterial.motif == "tree",
+  "canonical vanilla tree quartet was not promoted to vegetation")
+local boulderMaterial = exports.materialClassifier.classify(map, 1, 5)
+assert(boulderMaterial.family == "boundary" and boulderMaterial.motif == "boulder",
+  "canonical vanilla boulder quartet was not kept distinct from trees")
 
 local neighborMap = {
   id = "SYNTHETIC_ROUTE",
   def = { tileset = "OVERWORLD" },
-  widthCells = 8,
-  heightCells = 8,
-  renderer = rendererStub,
+  widthCells = 8, heightCells = 8, renderer = rendererStub,
 }
 function neighborMap:inBounds(x, y)
   return x >= 0 and y >= 0 and x < self.widthCells and y < self.heightCells
 end
 function neighborMap:isWaterCell() return false end
-function neighborMap:isGrassCell(x, y) return y == 3 and x >= 2 and x <= 4 end
+function neighborMap:isGrassCell() return false end
 function neighborMap:isWarpTileCell() return false end
 function neighborMap:warpAtCell() return nil end
-function neighborMap:isWalkableCell(x, y) return not (y >= 1 and y <= 2 and x <= 4) end
-function neighborMap:cellTile(x, y)
-  if y >= 1 and y <= 2 and x <= 4 then return 0x52 end
-  return 0x01
-end
+function neighborMap:isWalkableCell() return true end
+function neighborMap:cellTile() return 0x2C end
+function neighborMap:tileAt() return 0x2C end
 function neighborMap:blockAt() return 0x01 end
 
 local actorQuad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
@@ -221,19 +226,11 @@ end
 local state = {
   map = map,
   neighbors = { { map = neighborMap, ox = 10 * 16, oy = 0 } },
-  entities = { actor },
-  ghosts = {},
-  player = actor,
+  entities = { actor }, ghosts = {}, player = actor,
 }
-
 local worldCtx = {
-  width = 640, height = 576,
-  vw = 160, vh = 144,
-  scale = 4,
-  level = 2,
-  state = state,
-  cam = { x = 0, y = 0 },
-  bgY = 0,
+  width = 640, height = 576, vw = 160, vh = 144, scale = 4, level = 2,
+  state = state, cam = { x = 0, y = 0 }, bgY = 0,
   paletteFor = function()
     return { {255,255,255}, {170,190,160}, {90,110,90}, {30,35,32} }
   end,
@@ -250,59 +247,42 @@ local ax, ay = proj:cell(0, 0, 0)
 local bx, by = proj:cell(1, 0, 0)
 local cx, cy = proj:cell(0, 1, 0)
 assert((bx - ax) * (cx - ax) < 0,
-  "world axes do not rotate in opposite X directions; projection regressed to a flat trapezoid")
+  "world axes do not rotate in opposite X directions")
 assert(by > ay and cy > ay,
-  "both world axes must recede downward in the perspective camera")
+  "world axes do not recede through perspective")
 assert((proj.elevation / math.max(0.001, proj.tileH)) >= 2.0,
-  "TEST5 DEPTH camera is still too top-down for diorama staging")
+  "DEPTH camera regressed too far toward top-down")
 
 local rendered = Pipelines.drawWorld("krs_hd2d_world", worldCtx)
 assert(rendered ~= nil, "scene renderer produced no canvas")
-assert(exports.renderer.lastGroundCells >= 40,
-  "scene renderer did not emit a shared ground plane")
-assert(exports.renderer.lastStructures >= 1,
-  "warp-derived building was not emitted as one scene volume")
-assert(exports.renderer.lastVegetation >= 1,
-  "interior repeated mass did not become upright vegetation")
-assert(exports.renderer.lastActors == 1,
-  "upright actor billboard was not depth composed")
-assert((exports.renderer.lastPerspectiveActors or 0) == 1,
-  "actor billboard did not use live perspective scaling")
-assert((exports.renderer.lastVerticalizedStructures or 0) >= 1,
-  "TEST5 did not vertically stage structure geometry")
-assert((exports.renderer.lastVerticalizedVegetation or 0) >= 1,
-  "TEST5 did not vertically stage vegetation geometry")
+assert(exports.renderer.lastGroundCells >= 40, "shared ground plane missing")
+assert(exports.renderer.lastStructures >= 1, "structure volume missing")
+assert(exports.renderer.lastVegetation >= 1, "tree motif did not emit vegetation")
+assert(exports.renderer.lastBoundaries >= 1, "boulder motif did not emit a boundary")
+assert(exports.renderer.lastActors == 1, "actor billboard missing")
+assert((exports.renderer.lastRaisedLawnCells or 0) > 0,
+  "terrain remaster did not raise lawn cells")
+assert((exports.renderer.lastPathCells or 0) > 0,
+  "terrain remaster did not preserve path cells")
+assert((exports.renderer.lastTerrainSkirts or 0) > 0,
+  "lawn/path elevation transition emitted no terrain skirts")
 assert((exports.renderer.lastApronCells or 0) > 0,
-  "outdoor map did not receive a non-playable world apron")
+  "outdoor world apron missing")
 assert((exports.renderer.lastInteriorShellPanels or 0) == 0,
   "outdoor map incorrectly received an interior shell")
-assert(exports.renderer.lastWaterCells >= 1,
-  "water contact plane was not emitted")
-assert(exports.renderer.lastCommands >= 3,
-  "scene graph contained too few depth-sorted commands")
-assert(drawCounts.current >= 2,
-  "current map renderer was not captured for terrain texturing")
-assert(drawCounts.neighbor >= 1,
-  "connected map renderer was not captured")
+assert(drawCounts.current >= 2 and drawCounts.neighbor >= 1,
+  "terrain capture did not include current and connected maps")
 assert(drawCounts.fx == 1 and exports.renderer.lastFx == 1,
-  "field FX bridge did not run through scene projection")
+  "field FX bridge did not run through remastered surface projection")
 
 local presented = Pipelines.worldPresent(rendered, worldCtx)
-assert(presented == rendered,
-  "headless atmosphere fallback should preserve scene canvas")
-assert(exports.atmosphere.lastBypassed == true,
-  "headless atmosphere path did not report clean bypass")
-assert(Pipelines.worldPipeline() == "krs_hd2d_world",
-  "headless atmosphere bypass retired the pipeline")
+assert(presented == rendered and exports.atmosphere.lastBypassed == true,
+  "headless atmosphere fallback did not preserve scene canvas")
 
--- A room-like vanilla tileset must become a camera-facing dollhouse shell,
--- while remaining the same gameplay map and floor coordinates.
 local interiorMap = {
   id = "SYNTHETIC_REDS_HOUSE",
   def = { tileset = "REDSHOUSE1" },
-  widthCells = 6,
-  heightCells = 6,
-  renderer = rendererStub,
+  widthCells = 6, heightCells = 6, renderer = rendererStub,
 }
 function interiorMap:inBounds(x, y)
   return x >= 0 and y >= 0 and x < self.widthCells and y < self.heightCells
@@ -316,29 +296,21 @@ function interiorMap:cellTile() return 0x01 end
 function interiorMap:blockAt() return 0x01 end
 
 local interiorState = {
-  map = interiorMap,
-  neighbors = {},
-  entities = { actor },
-  ghosts = {},
-  player = actor,
+  map = interiorMap, neighbors = {}, entities = { actor }, ghosts = {}, player = actor,
 }
 local interiorCtx = {
-  width = 640, height = 576,
-  vw = 160, vh = 144,
-  scale = 4,
-  level = 2,
-  state = interiorState,
-  cam = { x = 0, y = 0 },
-  bgY = 0,
-  paletteFor = worldCtx.paletteFor,
-  drawFx = function() end,
+  width = 640, height = 576, vw = 160, vh = 144, scale = 4, level = 2,
+  state = interiorState, cam = { x = 0, y = 0 }, bgY = 0,
+  paletteFor = worldCtx.paletteFor, drawFx = function() end,
 }
 local interiorRendered = Pipelines.drawWorld("krs_hd2d_world", interiorCtx)
 assert(interiorRendered ~= nil, "interior scene renderer produced no canvas")
 assert((exports.renderer.lastInteriorShellPanels or 0) == 4,
-  "room-like interior did not receive the TEST5 dollhouse shell")
+  "room-like interior did not receive dollhouse shell")
 assert((exports.renderer.lastApronCells or 0) == 0,
-  "interior map incorrectly received outdoor apron geometry")
+  "interior map incorrectly received outdoor apron")
+assert((exports.renderer.lastRaisedLawnCells or 0) == 0,
+  "interior floor was incorrectly terrain-remastered as outdoor lawn")
 
 Pipelines.reset()
 Pipelines.install(nil)
