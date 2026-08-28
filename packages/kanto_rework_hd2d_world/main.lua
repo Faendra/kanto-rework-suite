@@ -62,6 +62,12 @@ renderer.drawSolidRelief = function()
   return 0
 end
 
+-- One contact-plane resolver is shared by water geometry, actors and the
+-- optional local highlight so all three agree on the exact Z value.
+renderer.waterSurfaceZ = function(self)
+  return WaterSurface.surfaceZ(self.level)
+end
+
 -- Preserve the renderer's restrained animated highlight, but make the actual
 -- water geometry a lower continuous plane first. The original/current water
 -- pixels remain the material source; only their presentation depth changes.
