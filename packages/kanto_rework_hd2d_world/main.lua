@@ -43,11 +43,20 @@ end
 
 local Projection = loadLocal("hd2d.Projection", "hd2d/Projection.lua")
 local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialClassifier.lua")
+local Relief = loadLocal("hd2d.Relief", "hd2d/Relief.lua")
 local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
 local renderer = Renderer.new(Projection, MaterialClassifier)
+local relief = Relief.new(MaterialClassifier)
 local occlusion = Occlusion.new()
+
+-- Relief is a composable world pass. The original renderer implementation
+-- only classified the active map; delegate the pass to Relief so the active
+-- map and every connected neighbour use the same semantic height rule.
+renderer.drawSolidRelief = function(self, ctx, proj)
+  return relief:draw(self, ctx, proj)
+end
 
 -- Renderer owns the world canvas. Insert the terrain-priority overlay after
 -- all upright actors but before ctx.drawFx, matching Gen1Recomp's ordering:
@@ -63,6 +72,7 @@ end
 mod.exports.renderer = renderer
 mod.exports.projection = Projection
 mod.exports.materialClassifier = MaterialClassifier
+mod.exports.relief = relief
 mod.exports.occlusion = occlusion
 
 mod.content.render_pipelines:register("krs_hd2d_world", {
