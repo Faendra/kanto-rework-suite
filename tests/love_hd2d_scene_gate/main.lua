@@ -26,9 +26,10 @@ function love.load()
     local Projection = module(root, "hd2d/SceneProjection.lua")
     local Classifier = module(root, "hd2d/MaterialClassifier.lua")
     local SceneRenderer = module(root, "hd2d/SceneRenderer.lua")
+    local SceneStyle = module(root, "hd2d/SceneStyle.lua")
     local Atmosphere = module(root, "hd2d/WorldAtmosphere.lua")
 
-    local renderer = SceneRenderer.new(Projection, Classifier)
+    local renderer = SceneStyle.apply(SceneRenderer.new(Projection, Classifier))
     local atmosphere = Atmosphere.new()
     renderer:update(0, 2)
 
@@ -39,12 +40,16 @@ function love.load()
       end
     end
 
-    fill(2, 2, 4, 3, "house")
-    fill(8, 2, 10, 3, "house")
+    -- Three compact warp-backed structures, two interior tree groups and a
+    -- distinct top rock border. The tree groups deliberately do not touch map
+    -- edges so the conservative runtime semantics can distinguish them from
+    -- TEST2-style rock/border masses without hard-coding Pallet coordinates.
+    fill(2, 2, 4, 3, "houseA")
+    fill(8, 2, 10, 3, "houseB")
     fill(7, 6, 11, 7, "lab")
-    for y = 1, 9 do blocked[y * 64 + 0] = "tree" end
-    for y = 1, 9 do blocked[y * 64 + 13] = "tree" end
-    for x = 0, 13 do blocked[0 * 64 + x] = "rock" end
+    fill(1, 1, 2, 3, "tree")
+    fill(11, 1, 12, 3, "tree")
+    for x = 2, 11 do blocked[0 * 64 + x] = "rock" end
 
     local map = {
       id = "SYNTHETIC_PALLET_DIORAMA",
@@ -77,9 +82,11 @@ function love.load()
     end
     function map:cellTile(x, y)
       local kind = blocked[y * 64 + x]
-      if kind == "tree" then return 0x52 end
+      if kind == "tree" then return 0x45 end
       if kind == "rock" then return 0x60 + (x % 4) end
-      if kind == "house" then return 0x30 + ((x + y) % 3) end
+      if kind == "houseA" or kind == "houseB" then
+        return 0x30 + ((x + y) % 3)
+      end
       if kind == "lab" then return 0x40 + ((x + y) % 4) end
       if self:isWaterCell(x, y) then return 0x14 end
       return 0x01
@@ -117,23 +124,81 @@ function love.load()
       end
     end
 
+    local function drawHouseTile(x, y, kind)
+      local px, py = x * CELL, y * CELL
+      local topRow = y == 2
+      if topRow then
+        if kind == "houseA" then
+          love.graphics.setColor(0.46, 0.27, 0.22, 1)
+          love.graphics.rectangle("fill", px, py, CELL, CELL)
+          love.graphics.setColor(0.72, 0.47, 0.31, 1)
+        else
+          love.graphics.setColor(0.32, 0.39, 0.43, 1)
+          love.graphics.rectangle("fill", px, py, CELL, CELL)
+          love.graphics.setColor(0.53, 0.64, 0.64, 1)
+        end
+        love.graphics.rectangle("fill", px, py + 3, CELL, 3)
+        love.graphics.rectangle("fill", px + 2, py + 10, 12, 2)
+        return
+      end
+
+      love.graphics.setColor(0.78, 0.76, 0.65, 1)
+      love.graphics.rectangle("fill", px, py, CELL, CELL)
+      love.graphics.setColor(0.43, 0.48, 0.45, 1)
+      love.graphics.rectangle("fill", px, py + 12, CELL, 4)
+      if x % 3 == 0 then
+        love.graphics.setColor(0.74, 0.45, 0.12, 1)
+        love.graphics.rectangle("fill", px + 5, py + 5, 6, 11)
+      else
+        love.graphics.setColor(0.45, 0.68, 0.70, 1)
+        love.graphics.rectangle("fill", px + 4, py + 6, 8, 5)
+      end
+    end
+
+    local function drawLabTile(x, y)
+      local px, py = x * CELL, y * CELL
+      if y == 6 then
+        love.graphics.setColor(0.23, 0.39, 0.40, 1)
+        love.graphics.rectangle("fill", px, py, CELL, CELL)
+        love.graphics.setColor(0.45, 0.62, 0.59, 1)
+        love.graphics.rectangle("fill", px, py + 4, CELL, 3)
+        love.graphics.rectangle("fill", px + 1, py + 11, 14, 2)
+        return
+      end
+
+      love.graphics.setColor(0.74, 0.78, 0.70, 1)
+      love.graphics.rectangle("fill", px, py, CELL, CELL)
+      love.graphics.setColor(0.38, 0.48, 0.45, 1)
+      love.graphics.rectangle("fill", px, py + 12, CELL, 4)
+      if x == 9 then
+        love.graphics.setColor(0.74, 0.45, 0.12, 1)
+        love.graphics.rectangle("fill", px + 5, py + 4, 6, 12)
+      else
+        love.graphics.setColor(0.43, 0.65, 0.67, 1)
+        love.graphics.rectangle("fill", px + 3, py + 6, 10, 5)
+      end
+    end
+
     local function drawFlatBlocked(x, y, kind)
       local px, py = x * CELL, y * CELL
       if kind == "tree" then
-        love.graphics.setColor(0.14, 0.35, 0.17, 1)
+        love.graphics.setColor(0.12, 0.32, 0.16, 1)
         love.graphics.rectangle("fill", px, py, CELL, CELL)
-        love.graphics.setColor(0.34, 0.57, 0.28, 1)
+        love.graphics.setColor(0.34, 0.58, 0.28, 1)
         love.graphics.rectangle("fill", px + 2, py + 2, 12, 7)
+        love.graphics.setColor(0.48, 0.70, 0.34, 1)
+        love.graphics.rectangle("fill", px + 5, py + 3, 6, 4)
       elseif kind == "rock" then
-        love.graphics.setColor(0.58, 0.61, 0.58, 1)
+        love.graphics.setColor(0.53, 0.57, 0.56, 1)
         love.graphics.rectangle("fill", px, py, CELL, CELL)
-        love.graphics.setColor(0.82, 0.83, 0.76, 1)
+        love.graphics.setColor(0.82, 0.84, 0.78, 1)
         love.graphics.rectangle("fill", px + 3, py + 2, 9, 5)
+        love.graphics.setColor(0.35, 0.39, 0.40, 1)
+        love.graphics.rectangle("fill", px + 2, py + 12, 12, 3)
+      elseif kind == "lab" then
+        drawLabTile(x, y)
       else
-        love.graphics.setColor(0.65, 0.65, 0.57, 1)
-        love.graphics.rectangle("fill", px, py, CELL, CELL)
-        love.graphics.setColor(0.34, 0.34, 0.30, 1)
-        love.graphics.rectangle("fill", px, py, CELL, 5)
+        drawHouseTile(x, y, kind)
       end
     end
 
@@ -218,6 +283,8 @@ function love.load()
            "visual scene is not using a rotated isometric ground basis")
     assert(by > ay and cy > ay,
            "visual scene world axes do not recede into depth")
+    assert((proj.elevation / proj.tileH) >= 1.7,
+           "camera elevation is too weak; scene risks reading as a flat board")
 
     local raw = assert(renderer:drawWorld(ctx), "scene renderer returned no canvas")
     saveCanvas(raw, "hd2d-scene-raw.png")
@@ -228,8 +295,10 @@ function love.load()
            "real LÖVE texture mesh path did not texture the ground plane")
     assert(renderer.lastStructures >= 3,
            "synthetic Pallet did not reconstruct all three building volumes")
-    assert(renderer.lastVegetation >= 6,
-           "synthetic Pallet did not reconstruct vegetation objects")
+    assert(renderer.lastVegetation >= 4,
+           "synthetic Pallet did not reconstruct interior vegetation silhouettes")
+    assert(renderer.lastBoundaries >= 4,
+           "synthetic Pallet did not keep rock/border masses distinct from vegetation")
     assert(renderer.lastActors == 1,
            "synthetic player was not rendered as an upright billboard")
     assert(renderer.lastWaterCells >= 4,
@@ -247,11 +316,11 @@ function love.load()
           .. "/hd2d-scene-raw.png")
     print("SCENE_DEPTH=" .. love.filesystem.getSaveDirectory()
           .. "/hd2d-scene-depth.png")
-    print(("SCENE_METRICS ground=%d textured=%d structures=%d vegetation=%d actors=%d water=%d commands=%d")
+    print(("SCENE_METRICS ground=%d textured=%d structures=%d vegetation=%d boundary=%d actors=%d water=%d commands=%d")
       :format(renderer.lastGroundCells, renderer.lastTexturedGround,
               renderer.lastStructures, renderer.lastVegetation,
-              renderer.lastActors, renderer.lastWaterCells,
-              renderer.lastCommands))
+              renderer.lastBoundaries, renderer.lastActors,
+              renderer.lastWaterCells, renderer.lastCommands))
 
     actorImage:release()
     atmosphere:invalidate()
