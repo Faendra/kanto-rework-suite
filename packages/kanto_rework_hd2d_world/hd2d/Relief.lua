@@ -4,6 +4,26 @@ Relief.__index = Relief
 local CELL = 16
 local MARGIN_CELLS = 2
 
+local function clamp(v, lo, hi)
+  if v < lo then return lo end
+  if v > hi then return hi end
+  return v
+end
+
+local function finite(v)
+  return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function normalizeColor(c, fallback)
+  if type(c) ~= "table" then return fallback[1], fallback[2], fallback[3] end
+  local r, g, b = c[1], c[2], c[3]
+  if not (finite(r) and finite(g) and finite(b)) then
+    return fallback[1], fallback[2], fallback[3]
+  end
+  if r > 1 or g > 1 or b > 1 then r, g, b = r / 255, g / 255, b / 255 end
+  return r, g, b
+end
+
 function Relief.new(MaterialClassifier)
   return setmetatable({
     MaterialClassifier = MaterialClassifier,
@@ -16,6 +36,7 @@ function Relief.new(MaterialClassifier)
     lastEaves = 0,
     lastCanopies = 0,
     lastMassShadows = 0,
+    lastRoofs = 0,
   }, Relief)
 end
 
@@ -42,7 +63,7 @@ function Relief:resetMetrics()
   self.lastScenes, self.lastCells = 0, 0
   self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
   self.lastDoorways, self.lastEaves, self.lastCanopies = 0, 0, 0
-  self.lastMassShadows = 0
+  self.lastMassShadows, self.lastRoofs = 0, 0
 end
 
 local function sameMass(a, b)
@@ -68,6 +89,19 @@ local function shadowAlpha(material)
   if family == "landmark" then return 0.080, 0.18 end
   if family == "boundary" then return 0.060, 0.15 end
   return 0.050, 0.12
+end
+
+local function paletteTone(host, ctx, map, fromDark, factor, alpha)
+  local fallback = { 0.18, 0.20, 0.18 }
+  local palette = ctx.paletteFor and ctx.paletteFor(map) or nil
+  if type(palette) ~= "table" or #palette == 0 then
+    return host:paletteWallColor(ctx, map, alpha, factor)
+  end
+  local index = clamp(#palette - (fromDark or 1), 1, #palette)
+  local r, g, b = normalizeColor(palette[index], fallback)
+  factor = factor or 1
+  return clamp(r * factor, 0, 1), clamp(g * factor, 0, 1),
+         clamp(b * factor, 0, 1), alpha or 1
 end
 
 local function drawTopCell(host, proj, wx, wy, height)
@@ -112,7 +146,6 @@ local function drawTopRun(host, proj, wx, wy, cells, height)
   if drawTexturedRun(host, proj, wx, wy, cells, height, 1, 1, 1) then
     return true
   end
-
   local any = false
   for i = 0, cells - 1 do
     any = drawTopCell(host, proj, wx + i * CELL, wy, height) or any
@@ -201,6 +234,42 @@ local function drawStructureEave(host, ctx, proj, map, run)
   local cells = math.max(1, math.floor((run.wx1 - run.wx0) / CELL + 0.5))
   drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
                   z1 + thickness * 0.18, 1.07, 0.24, 0.96)
+end
+
+local function drawGabledRoof(host, ctx, proj, map, mass, ox, oy, height)
+  if not mass or (mass.density or 0) < 0.62
+     or (mass.spanX or 0) < 2 or (mass.spanY or 0) < 1 then
+    return false
+  end
+
+  local overhang = CELL * 0.07
+  local x0 = mass.minX * CELL + (ox or 0) - overhang
+  local x1 = (mass.maxX + 1) * CELL + (ox or 0) + overhang
+  local y0 = mass.minY * CELL + (oy or 0) - overhang * 0.35
+  local y1 = (mass.maxY + 1) * CELL + (oy or 0) + overhang * 0.55
+  local ridgeX = (x0 + x1) * 0.5
+  local baseZ = height + math.max(0.75, proj.relief * 0.11)
+  local ridgeZ = baseZ + math.max(2.5, proj.relief * 0.52)
+
+  local wx0, wy0 = proj:projectTerrain(x0, y0, baseZ)
+  local wx1, wy1 = proj:projectTerrain(x0, y1, baseZ)
+  local rx0, ry0 = proj:projectTerrain(ridgeX, y0, ridgeZ)
+  local rx1, ry1 = proj:projectTerrain(ridgeX, y1, ridgeZ)
+  local ex0, ey0 = proj:projectTerrain(x1, y0, baseZ)
+  local ex1, ey1 = proj:projectTerrain(x1, y1, baseZ)
+
+  local r1, g1, b1, a1 = paletteTone(host, ctx, map, 1, 0.94, 0.90)
+  love.graphics.setColor(r1, g1, b1, a1)
+  love.graphics.polygon("fill", wx0, wy0, wx1, wy1, rx1, ry1, rx0, ry0)
+
+  local r2, g2, b2, a2 = paletteTone(host, ctx, map, 1, 0.79, 0.92)
+  love.graphics.setColor(r2, g2, b2, a2)
+  love.graphics.polygon("fill", rx0, ry0, rx1, ry1, ex1, ey1, ex0, ey0)
+
+  local rg, gg, bg, ag = host:paletteWallColor(ctx, map, 0.94, 0.62)
+  love.graphics.setColor(rg, gg, bg, ag)
+  love.graphics.polygon("fill", wx1, wy1, ex1, ey1, rx1, ry1)
+  return true
 end
 
 local function drawVegetationCrown(host, ctx, proj, map, run)
@@ -319,11 +388,19 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     end
   end
 
+  local roofsDrawn = {}
   for _, run in ipairs(frontRuns) do
     local family = run.material.family
     if family == "structure" then
       drawStructureEave(host, ctx, proj, map, run)
       self.lastEaves = self.lastEaves + 1
+      local mass = classifier.massInfo(map, run.startX, cy)
+      if mass and mass.maxY == cy and not roofsDrawn[mass.id] then
+        if drawGabledRoof(host, ctx, proj, map, mass, ox, oy, run.height) then
+          self.lastRoofs = self.lastRoofs + 1
+        end
+        roofsDrawn[mass.id] = true
+      end
     elseif family == "vegetation" then
       drawVegetationCrown(host, ctx, proj, map, run)
       self.lastCanopies = self.lastCanopies + 1
