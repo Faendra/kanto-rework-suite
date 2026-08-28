@@ -210,11 +210,46 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    if: ${{ false }}
-    name: Package live test (disabled during TEST8 visual gate)
+    name: Package validated TEST8 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
-      - run: echo "TEST8 packaging is gated on visual acceptance"
+
+      - name: Verify TEST8 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('packages/kanto_rework_hd2d_world/manifest.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          assert data['id'] == 'kanto_rework_hd2d_world'
+          assert data['version'] == '0.2.6-cphd2d11-test8'
+          PY
+
+      - name: Build installable TEST8 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd packages
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d11-test8.zip \
+            kanto_rework_hd2d_world \
+            -x '*/.DS_Store' '*/Thumbs.db'
+          cd ..
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d11-test8.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d11-test8.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d11-test8.zip
+
+      - name: Upload TEST8 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-test8-build
+          path: |
+            dist/kanto_rework_hd2d_world-cphd2d11-test8.zip
+            dist/kanto_rework_hd2d_world-cphd2d11-test8.sha256
+          if-no-files-found: error
+          retention-days: 14
