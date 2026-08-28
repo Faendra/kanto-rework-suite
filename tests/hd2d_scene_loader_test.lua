@@ -272,12 +272,26 @@ assert(exports.renderer.lastStructures >= 1, "structure volume missing")
 assert(exports.renderer.lastVegetation >= 1, "tree motif did not emit vegetation")
 assert(exports.renderer.lastBoundaries >= 1, "boulder motif did not emit a boundary")
 assert(exports.renderer.lastActors == 1, "actor billboard missing")
+assert((exports.renderer.lastAtlasDirectFrames or 0) == 1,
+  "TEST8 did not select direct runtime-atlas world path")
+assert((exports.renderer.lastCompatibilityCaptureFrames or 0) == 0,
+  "TEST8 unexpectedly selected compatibility framebuffer capture")
+assert(drawCounts.current == 0 and drawCounts.neighbor == 0,
+  "TEST8 still invoked flat-map draw calls despite runtime atlas availability")
 assert((exports.renderer.lastAtlasGroundCells or 0) > 0,
-  "TEST8 did not source walkable terrain directly from runtime tileset atlas")
+  "TEST8 did not source terrain directly from runtime tileset atlas")
+assert((exports.renderer.lastAtlasDonorGroundCells or 0) > 0,
+  "TEST8 did not replace solid footprints with atlas-derived donor terrain")
 assert((exports.renderer.lastAtlasNaturalObjects or 0) > 0,
   "TEST8 did not source natural object pixels directly from runtime tileset atlas")
+assert((exports.renderer.lastAtlasStructures or 0) >= 1,
+  "TEST8 structure did not receive a direct runtime-atlas region")
 assert((exports.renderer.lastAtlasCellTextures or 0) > 0,
   "TEST8 created no cached 16x16 cells from runtime 8x8 atlas tiles")
+assert((exports.renderer.lastAtlasRegionTextures or 0) > 0,
+  "TEST8 created no architecture region directly from runtime atlas")
+assert((exports.renderer.lastFlatSourceFallbacks or 0) == 0,
+  "TEST8 leaked back to the flattened framebuffer source")
 assert((exports.renderer.lastRaisedLawnCells or 0) > 0,
   "terrain remaster did not raise lawn cells")
 assert((exports.renderer.lastPathCells or 0) > 0,
@@ -288,8 +302,6 @@ assert((exports.renderer.lastApronCells or 0) > 0,
   "outdoor world apron missing")
 assert((exports.renderer.lastInteriorShellPanels or 0) == 0,
   "outdoor map incorrectly received an interior shell")
-assert(drawCounts.current >= 2 and drawCounts.neighbor >= 1,
-  "compatibility capture did not include current and connected maps")
 assert(drawCounts.fx == 1 and exports.renderer.lastFx == 1,
   "field FX bridge did not run through remastered surface projection")
 
