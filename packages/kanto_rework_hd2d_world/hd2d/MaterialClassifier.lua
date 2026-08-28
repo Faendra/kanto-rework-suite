@@ -5,8 +5,7 @@ local DIRS = { {1, 0}, {-1, 0}, {0, 1}, {0, -1} }
 
 -- These are the Gen I tilesets whose repeated blocked masses are most likely
 -- vegetation rather than masonry. Structure detection still wins whenever a
--- real traversal threshold touches the mass, so houses in OVERWORLD maps do
--- not get promoted to trees.
+-- real traversal threshold touches a compact architectural mass.
 local VEGETATION_TILESETS = {
   OVERWORLD = true,
   FOREST = true,
@@ -68,8 +67,23 @@ local function warpAdjacent(map, cx, cy)
   return false
 end
 
+-- TEST1 demonstrated that "adjacent to a warp" alone is not enough evidence
+-- for architecture: a warp can touch a long connected rock/tree/boundary mass.
+-- Architectural promotion therefore requires a compact, dense component that
+-- does not itself touch the map edge. These limits are map-data derived and do
+-- not encode any Pallet coordinates or block ids.
+local function compactStructure(component)
+  return component.warpEdges > 0
+     and component.size >= 3
+     and not component.touchesEdge
+     and (component.spanX or 0) <= 10
+     and (component.spanY or 0) <= 7
+     and component.size <= 64
+     and (component.density or 0) >= 0.35
+end
+
 local function familyFor(component, map)
-  if component.warpEdges > 0 and component.size >= 3 then
+  if compactStructure(component) then
     return "structure", 1.75
   end
 
@@ -261,6 +275,16 @@ end
 function MaterialClassifier.sideExposed(map, cx, cy, dx)
   local here = MaterialClassifier.classify(map, cx, cy)
   if here.kind ~= "solid" then return false end
+
+  -- Tall architecture sides on rear rows were visible above the pitched roof
+  -- as a thin vertical spike in the real-LÖVE TEST2 gate. Only the front-most
+  -- exposed structural row owns a high side face; natural families are already
+  -- rendered as shallow/upright edges by Relief.
+  if here.family == "structure"
+     and not MaterialClassifier.frontExposed(map, cx, cy) then
+    return false
+  end
+
   local side = MaterialClassifier.classify(map, cx + dx, cy)
   return side.kind ~= "solid"
 end
