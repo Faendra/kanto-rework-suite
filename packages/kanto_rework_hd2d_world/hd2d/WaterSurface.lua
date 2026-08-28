@@ -33,10 +33,15 @@ local function isWater(classifier, map, cx, cy)
   return classifier.classify(map, cx, cy).kind == "water"
 end
 
-local function recessForLevel(level)
+function WaterSurface.recessForLevel(level)
+  level = tonumber(level) or 1
   if level >= 3 then return 2.5 end
   if level >= 2 then return 1.8 end
   return 1.25
+end
+
+function WaterSurface.surfaceZ(level)
+  return -WaterSurface.recessForLevel(level)
 end
 
 local function projectedRect(proj, wx, wy, worldW, worldH, z)
@@ -93,7 +98,7 @@ function WaterSurface:drawScene(host, ctx, proj, map, ox, oy, level)
   if x1 < x0 or y1 < y0 then return 0 end
 
   local classifier = self.MaterialClassifier
-  local recess = recessForLevel(level or 1)
+  local recess = WaterSurface.recessForLevel(level or 1)
   local cells = 0
 
   for cy = y0, y1 do
