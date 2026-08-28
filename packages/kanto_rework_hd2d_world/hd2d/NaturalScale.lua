@@ -3,6 +3,13 @@ local VanillaMotifs = require("hd2d.VanillaMotifs")
 local NaturalScale = {}
 local CELL = 16
 
+local OUTDOOR = {
+  OVERWORLD = true,
+  FOREST = true,
+  SHIP_PORT = true,
+  PLATEAU = true,
+}
+
 local function variation(cmd)
   local x = math.floor(tonumber(cmd and cmd.x) or 0)
   local y = math.floor(tonumber(cmd and cmd.y) or 0)
@@ -16,6 +23,10 @@ local function localCell(cmd)
   local cx = math.floor((tonumber(cmd.x) or 0) - ox + 0.001)
   local cy = math.floor((tonumber(cmd.y) or 0) - oy + 0.001)
   return cmd.scene.map, cx, cy
+end
+
+local function isOutdoor(map)
+  return OUTDOOR[map and map.def and map.def.tileset] == true
 end
 
 local function scaledProjection(proj, scaleFactor)
@@ -39,6 +50,12 @@ local function scaledProjection(proj, scaleFactor)
   return setmetatable(proxy, { __index = proj })
 end
 
+local function drawFlatAtlasDecal(renderer, proj, cmd, topColor)
+  if not (cmd and cmd.atlasTexture and renderer.drawTexturedQuad) then return false end
+  local rect = { 0, 0, CELL, CELL, atlasImage = cmd.atlasTexture }
+  return renderer:drawTexturedQuad(proj, cmd.x, cmd.y, 0.006, rect, topColor)
+end
+
 function NaturalScale.apply(renderer)
   if not renderer or renderer.__naturalScaleApplied then return renderer end
   renderer.__naturalScaleApplied = true
@@ -48,6 +65,7 @@ function NaturalScale.apply(renderer)
     baseResetMetrics(self)
     self.lastScaledTrees = 0
     self.lastFlattenedBoulders = 0
+    self.lastGroundedGenericBoundaries = 0
   end
 
   local baseDrawVegetation = renderer.drawVegetation
@@ -64,13 +82,32 @@ function NaturalScale.apply(renderer)
   local baseDrawLowPrism = renderer.drawLowPrism
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
     local map, cx, cy = localCell(cmd)
-    if map and VanillaMotifs.cellMotif(map, cx, cy) == "boulder" then
+    local motif = map and VanillaMotifs.cellMotif(map, cx, cy) or nil
+    if motif == "boulder" then
       -- The boulder top texture is already correct; only its vertical relief was
       -- excessive. Reduce screen-space rise while preserving the footprint.
       self.lastFlattenedBoulders = (self.lastFlattenedBoulders or 0) + 1
       return baseDrawLowPrism(self, scaledProjection(proj, 0.52),
                               cmd, height, topColor)
     end
+
+    -- TEST9 live capture exposed the remaining long grey walls: every outdoor
+    -- boundary/obstacle that was not a canonical tree/boulder still fell back to
+    -- SceneRenderer:drawLowPrism, which invents south/east rock faces. Unknown
+    -- natural cells have no evidence of vertical topology, so preserve their
+    -- atlas pixels as a near-ground decal instead of fabricating a wall.
+    if map and isOutdoor(map) and motif == nil then
+      if drawFlatAtlasDecal(self, proj, cmd, topColor) then
+        self.lastGroundedGenericBoundaries =
+          (self.lastGroundedGenericBoundaries or 0) + 1
+        return true
+      end
+      -- Compatibility path without a runtime atlas: suppress vertical height.
+      self.lastGroundedGenericBoundaries =
+        (self.lastGroundedGenericBoundaries or 0) + 1
+      return baseDrawLowPrism(self, proj, cmd, 0.004, topColor)
+    end
+
     return baseDrawLowPrism(self, proj, cmd, height, topColor)
   end
 
