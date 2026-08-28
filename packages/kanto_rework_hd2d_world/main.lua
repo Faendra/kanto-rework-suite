@@ -46,18 +46,20 @@ local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialCl
 local Relief = loadLocal("hd2d.Relief", "hd2d/Relief.lua")
 local WaterSurface = loadLocal("hd2d.WaterSurface", "hd2d/WaterSurface.lua")
 local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
+local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
 local renderer = Renderer.new(Projection, MaterialClassifier)
 local relief = Relief.new(MaterialClassifier)
 local water = WaterSurface.new(MaterialClassifier)
 local occlusion = Occlusion.new()
+local depthComposer = DepthComposer.new(relief, occlusion)
 
--- Relief is a composable world pass. The original renderer implementation
--- only classified the active map; delegate the pass to Relief so the active
--- map and every connected neighbour use the same semantic height rule.
-renderer.drawSolidRelief = function(self, ctx, proj)
-  return relief:draw(self, ctx, proj)
+-- Raised terrain and upright actors must share one painter order. Suppress the
+-- renderer's old terrain-first pass; DepthComposer emits both row geometry and
+-- billboards by world baseline Y inside drawActors below.
+renderer.drawSolidRelief = function()
+  return 0
 end
 
 -- Preserve the renderer's restrained animated highlight, but make the actual
@@ -69,15 +71,8 @@ renderer.drawWaterLight = function(self, ctx, proj)
   drawWaterLight(self, ctx, proj)
 end
 
--- Renderer owns the world canvas. Insert the terrain-priority overlay after
--- all upright actors but before ctx.drawFx, matching Gen1Recomp's ordering:
--- grass hides actor feet, while standing/dust/heal FX remain free to render
--- afterward. Keeping this as a composable pass avoids coupling grass rules to
--- the camera/terrain renderer itself.
-local drawActors = renderer.drawActors
 renderer.drawActors = function(self, ctx, proj)
-  drawActors(self, ctx, proj)
-  occlusion:draw(ctx, proj)
+  return depthComposer:draw(self, ctx, proj)
 end
 
 mod.exports.renderer = renderer
@@ -86,6 +81,7 @@ mod.exports.materialClassifier = MaterialClassifier
 mod.exports.relief = relief
 mod.exports.water = water
 mod.exports.occlusion = occlusion
+mod.exports.depthComposer = depthComposer
 
 mod.content.render_pipelines:register("krs_hd2d_world", {
   label = "KRS HD2D WORLD",
