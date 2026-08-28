@@ -37,9 +37,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find packages/kanto_rework_hd2d_world -type f -name '*.lua' -print0 \
-            | sort -z \
-            | xargs -0 -n1 luac5.1 -p
+          find packages/kanto_rework_hd2d_world -type f -name '*.lua' -print0 | sort -z | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/hd2d_scene_contract.lua
           luac5.1 -p tests/hd2d_scene_loader_test9.lua
           luac5.1 -p tests/love_hd2d_shader_gate/main.lua
@@ -67,16 +65,13 @@ jobs:
           sudo apt-get install -y luajit
       - name: Checkout Gen1Recomp v0.2.32
         run: |
-          git clone --depth 1 --branch v0.2.32 \
-            https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
+          git clone --depth 1 --branch v0.2.32 https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
       - name: Load TEST10 through official mod loader
         shell: bash
         run: |
           set -o pipefail
           cd /tmp/gen1recomp
-          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" \
-            luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test9.lua" \
-            2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader-test10.log"
+          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test9.lua" 2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader-test10.log"
       - name: Upload loader diagnostic
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,66 +96,51 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
-            2>&1 | tee hd2d-love-shader.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate 2>&1 | tee hd2d-love-shader.log
       - name: Require source-textured scene objects on real LÖVE
         shell: bash
         run: |
           set -o pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_style_gate \
-            2>&1 | tee hd2d-love-style.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_style_gate 2>&1 | tee hd2d-love-style.log
       - name: Require live perspective scale and world apron
         shell: bash
         run: |
           set -o pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate \
-            2>&1 | tee hd2d-love-live-polish.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate 2>&1 | tee hd2d-love-live-polish.log
       - name: Require vanilla-aware natural forms and seam-safe actors
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_natural_forms_gate \
-            2>&1 | tee hd2d-love-natural-forms.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_natural_forms_gate 2>&1 | tee hd2d-love-natural-forms.log
           find "$HOME/.local/share/love" -type f -name 'hd2d-natural-forms.png' -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-natural-forms.png
       - name: Require generic outdoor boundaries to stay grounded
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test10_boundary_gate \
-            2>&1 | tee hd2d-love-test10-boundary.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test10_boundary_gate 2>&1 | tee hd2d-love-test10-boundary.log
       - name: Render continuous direct-atlas world
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test9_atlas_gate \
-            2>&1 | tee hd2d-love-test10-atlas.log
-          find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-test9-atlas-raw.png' -o -name 'hd2d-test9-atlas-depth.png' \) \
-            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test9_atlas_gate 2>&1 | tee hd2d-love-test10-atlas.log
+          find "$HOME/.local/share/love" -type f \( -name 'hd2d-test9-atlas-raw.png' -o -name 'hd2d-test9-atlas-depth.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-test9-atlas-raw.png
           test -s hd2d-test9-atlas-depth.png
       - name: Render TEST5 interior regression diorama
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test5_scene_gate \
-            2>&1 | tee hd2d-love-test5.log
-          find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-test5-outdoor-raw.png' -o -name 'hd2d-test5-outdoor-depth.png' \
-            -o -name 'hd2d-test5-interior-raw.png' -o -name 'hd2d-test5-interior-depth.png' \) \
-            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test5_scene_gate 2>&1 | tee hd2d-love-test5.log
+          find "$HOME/.local/share/love" -type f \( -name 'hd2d-test5-outdoor-raw.png' -o -name 'hd2d-test5-outdoor-depth.png' -o -name 'hd2d-test5-interior-raw.png' -o -name 'hd2d-test5-interior-depth.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-test5-interior-raw.png
           test -s hd2d-test5-interior-depth.png
       - name: Render base synthetic diorama regression
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_scene_gate \
-            2>&1 | tee hd2d-love-scene.log
-          find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-scene-raw.png' -o -name 'hd2d-scene-depth.png' \) \
-            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_scene_gate 2>&1 | tee hd2d-love-scene.log
+          find "$HOME/.local/share/love" -type f \( -name 'hd2d-scene-raw.png' -o -name 'hd2d-scene-depth.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-scene-raw.png
           test -s hd2d-scene-depth.png
       - name: Upload real-LÖVE TEST10 diagnostics
@@ -190,9 +170,39 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    if: ${{ false }}
-    name: Package TEST10 (disabled until visual acceptance)
+    name: Package validated TEST10 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TEST10 packaging remains gated on TEST9-live grey-wall regression review"
+      - name: Checkout validated KRS head
+        uses: actions/checkout@v4
+      - name: Verify TEST10 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('packages/kanto_rework_hd2d_world/manifest.json').read_text(encoding='utf-8'))
+          assert data['id'] == 'kanto_rework_hd2d_world'
+          assert data['version'] == '0.2.8-cphd2d13-test10'
+          PY
+      - name: Build installable TEST10 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd packages
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d13-test10.zip kanto_rework_hd2d_world -x '*/.DS_Store' '*/Thumbs.db'
+          cd ..
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d13-test10.zip | tee dist/kanto_rework_hd2d_world-cphd2d13-test10.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d13-test10.zip
+      - name: Upload TEST10 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-test10-build
+          path: |
+            dist/kanto_rework_hd2d_world-cphd2d13-test10.zip
+            dist/kanto_rework_hd2d_world-cphd2d13-test10.sha256
+          if-no-files-found: error
+          retention-days: 14
