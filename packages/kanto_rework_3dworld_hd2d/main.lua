@@ -44,6 +44,7 @@ local function loadLocal(name, path)
   return result
 end
 
+loadLocal("sol3d.NeighborScenes", "sol3d/NeighborScenes.lua")
 local WorldAdapter = loadLocal("sol3d.WorldAdapter", "sol3d/WorldAdapter.lua")
 loadLocal("sol3d.Projection", "sol3d/Projection.lua")
 loadLocal("sol3d.SceneProfiles", "sol3d/SceneProfiles.lua")
