@@ -7,7 +7,7 @@ local function clamp(v, lo, hi)
   return v
 end
 
-function Projection.new(width, height, level, playerX, playerY)
+function Projection.new(width, height, level, cameraX, cameraY)
   level = math.max(1, math.min(3, math.floor(tonumber(level) or 1)))
 
   local base = clamp(math.min(width / 24, height / 14), 24, 54)
@@ -24,8 +24,8 @@ function Projection.new(width, height, level, playerX, playerY)
     elevation = elevation,
     centerX = width * 0.50,
     centerY = height * ({ 0.54, 0.56, 0.59 })[level],
-    cameraX = (playerX or 0) + 0.5,
-    cameraY = (playerY or 0) + 0.5,
+    cameraX = cameraX or 0,
+    cameraY = cameraY or 0,
     spriteScale = tileW / 16 * 0.82,
   }, Projection)
 end
@@ -43,12 +43,16 @@ function Projection:worldPixel(wx, wy, z)
   return self:cell(wx / 16, wy / 16, z or 0)
 end
 
+function Projection:quad(x0, y0, x1, y1, z)
+  local ax, ay = self:cell(x0, y0, z)
+  local bx, by = self:cell(x1, y0, z)
+  local cx, cy = self:cell(x1, y1, z)
+  local dx, dy = self:cell(x0, y1, z)
+  return { ax, ay, bx, by, cx, cy, dx, dy }
+end
+
 function Projection:cellPolygon(x, y, z)
-  local x1, y1 = self:cell(x, y, z)
-  local x2, y2 = self:cell(x + 1, y, z)
-  local x3, y3 = self:cell(x + 1, y + 1, z)
-  local x4, y4 = self:cell(x, y + 1, z)
-  return { x1, y1, x2, y2, x3, y3, x4, y4 }
+  return self:quad(x, y, x + 1, y + 1, z)
 end
 
 return Projection

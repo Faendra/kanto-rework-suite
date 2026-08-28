@@ -5,6 +5,13 @@ function WorldAdapter.new(mod)
   return setmetatable({ mod = mod, lastError = nil }, WorldAdapter)
 end
 
+local function contentGet(registry, id)
+  if not (registry and type(registry.get) == "function") then return nil end
+  local ok, value = pcall(registry.get, registry, id)
+  if ok then return value end
+  return nil
+end
+
 function WorldAdapter:snapshot()
   local current, currentErr = self.mod.world:current()
   if not current then
@@ -18,6 +25,17 @@ function WorldAdapter:snapshot()
     return nil, self.lastError
   end
 
+  -- Registry reads are public Mod API reads.  They are deliberately optional:
+  -- if another engine version withholds one of these views, the renderer keeps
+  -- its semantic overview path instead of reaching into Game.data.
+  local mapDef = contentGet(self.mod.content and self.mod.content.maps,
+                            current.mapId)
+  local tilesetDef
+  if mapDef and mapDef.tileset then
+    tilesetDef = contentGet(self.mod.content and self.mod.content.tilesets,
+                            mapDef.tileset)
+  end
+
   self.lastError = nil
   return {
     mapId = current.mapId,
@@ -27,6 +45,8 @@ function WorldAdapter:snapshot()
       facing = current.facing,
     },
     overview = overview,
+    mapDef = mapDef,
+    tilesetDef = tilesetDef,
   }
 end
 
