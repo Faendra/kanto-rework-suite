@@ -82,15 +82,46 @@ local function topColor(kind, shade)
          clamp(base[3] * value, 0, 1), 1
 end
 
+local function waterMaterialMul(x, y, time, level)
+  local strength = ({ 0.020, 0.028, 0.034 })[level] or 0.020
+  local t = tonumber(time) or 0
+  local waveA = math.sin(x * 1.55 + y * 1.10 + t * 1.65)
+  local waveB = math.sin((x - y) * 2.10 - t * 1.05)
+  return 1 + (waveA * 0.68 + waveB * 0.32) * strength
+end
+
+local function setTopColor(kind, shade, mul)
+  local r, g, b, a = topColor(kind, shade)
+  mul = mul or 1
+  love.graphics.setColor(clamp(r * mul, 0, 1),
+                         clamp(g * mul, 0, 1),
+                         clamp(b * mul, 0, 1), a)
+end
+
 local function drawPoly(points)
   love.graphics.polygon("fill", points)
 end
 
 local function drawDetailedTop(proj, overview, localX, localY,
-                               worldX, worldY, z, kind)
+                               worldX, worldY, z, kind, time, level)
   if not overview.tileDetailRows then
-    love.graphics.setColor(topColor(kind, 1.5))
-    drawPoly(proj:cellPolygon(worldX, worldY, z))
+    if kind ~= "water" then
+      setTopColor(kind, 1.5)
+      drawPoly(proj:cellPolygon(worldX, worldY, z))
+      return
+    end
+
+    -- Neighbor previews deliberately do not reconstruct tileDetailRows. Water
+    -- still receives a small 2x2 material raster so animation crosses map
+    -- seams without turning each walk cell into an independently pulsing tile.
+    for sy = 0, 1 do
+      for sx = 0, 1 do
+        local x0, y0 = worldX + sx * 0.5, worldY + sy * 0.5
+        local mul = waterMaterialMul(x0 + 0.25, y0 + 0.25, time, level)
+        setTopColor(kind, 1.5, mul)
+        drawPoly(proj:quad(x0, y0, x0 + 0.5, y0 + 0.5, z))
+      end
+    end
     return
   end
 
@@ -100,8 +131,12 @@ local function drawDetailedTop(proj, overview, localX, localY,
   for sy = 0, 3 do
     for sx = 0, 3 do
       local shade = detailDigit(overview, localX, localY, sx, sy) or 1.5
-      love.graphics.setColor(topColor(kind, shade))
       local x0, y0 = worldX + sx / 4, worldY + sy / 4
+      local mul = 1
+      if kind == "water" then
+        mul = waterMaterialMul(x0 + 0.125, y0 + 0.125, time, level)
+      end
+      setTopColor(kind, shade, mul)
       drawPoly(proj:quad(x0, y0, x0 + 0.25, y0 + 0.25, z))
     end
   end
@@ -181,15 +216,21 @@ local function drawActor(proj, scenes, pose)
   if pose.hopping and actor.py and pose.py then
     lift = math.max(0, actor.py - pose.py) / 16
   end
-  local z = actorSurfaceZ(scenes, pose) + lift
+  local surfaceZ = actorSurfaceZ(scenes, pose)
+  local z = surfaceZ + lift
   local sx, sy = proj:worldPixel(groundPx, groundPy, z)
+  local shadowX, shadowY = proj:worldPixel(groundPx, groundPy, surfaceZ)
   local geometry = sprite:getPoseGeometry(pose.facing, pose.phase, pose.flip)
   local image = sprite:resolveImage()
   if not (geometry and geometry.quad and image) then return end
 
   local s = proj.spriteScale
-  love.graphics.setColor(0, 0, 0, 0.20)
-  love.graphics.ellipse("fill", sx, sy + 1, 6 * s, 2.2 * s)
+  local shadowBase = surfaceZ < 0 and 0.12 or 0.20
+  local shadowFade = clamp(1 - lift * 0.55, 0.42, 1)
+  local shadowSpread = 1 + math.min(lift, 1.5) * 0.18
+  love.graphics.setColor(0, 0, 0, shadowBase * shadowFade)
+  love.graphics.ellipse("fill", shadowX, shadowY + 1,
+                        6 * s * shadowSpread, 2.2 * s * shadowSpread)
 
   love.graphics.setColor(1, 1, 1, 1)
   local y = sy - geometry.anchorY * s
@@ -202,6 +243,13 @@ local function drawActor(proj, scenes, pose)
   end
 end
 
+local function drawGroundShadow(proj, x0, y0, x1, y1, z, dx, dy, alpha)
+  love.graphics.setColor(0.015, 0.020, 0.024, alpha or 0.10)
+  drawPoly(proj:quad(x0 + (dx or 0), y0 + (dy or 0),
+                     x1 + (dx or 0), y1 + (dy or 0),
+                     (z or 0) + 0.004))
+end
+
 local function drawVerticalBillboard(proj, x, y, z0, z1, halfWidth, color)
   local bx, by = proj:cell(x, y, z0)
   local tx, ty = proj:cell(x, y, z1)
@@ -212,7 +260,14 @@ end
 
 local function drawVegetation(proj, x, y, level)
   local depthScale = ({ 0.90, 1.00, 1.08 })[level] or 1
+  local shadowAlpha = ({ 0.085, 0.105, 0.120 })[level] or 0.085
   local cx, cy = x + 0.5, y + 0.5
+
+  -- One projected footprint per plant group. This is a contact cue on the
+  -- shared ground plane, not a shadow volume for each map cell.
+  drawGroundShadow(proj, x + 0.18, y + 0.18, x + 0.82, y + 0.82,
+                   0, 0.08, 0.10, shadowAlpha)
+
   drawVerticalBillboard(proj, cx, cy, 0, 0.40 * depthScale,
                         proj.tileW * 0.055, BASE.trunk)
 
@@ -257,6 +312,12 @@ local function drawStructure(proj, s, level, offsetX, offsetY)
   local x0, x1 = s.x + offsetX, s.x + s.w + offsetX
   local y0, y1 = s.y + offsetY, s.y + s.h + offsetY
   local ridgeY = (y0 + y1) * 0.5
+  local shadowAlpha = ({ 0.080, 0.100, 0.115 })[level] or 0.080
+
+  -- A single offset footprint anchors the whole authored structure to the
+  -- terrain. Only its exposed south/east fringe remains visible after the
+  -- walls are drawn, avoiding per-cell AO and the resulting voxel read.
+  drawGroundShadow(proj, x0, y0, x1, y1, 0, 0.10, 0.12, shadowAlpha)
 
   setColor(wall, 0.86)
   drawPoly(eastWallQuad(proj, x1, y0, y1, 0, wallZ))
@@ -346,6 +407,7 @@ function Renderer.new(adapter)
     targetCameraX = nil,
     targetCameraY = nil,
     lastMapId = nil,
+    materialTime = 0,
   }, Renderer)
 end
 
@@ -358,8 +420,9 @@ end
 
 function Renderer:update(dt, level)
   self.level = math.max(0, math.min(3, math.floor(tonumber(level) or 0)))
+  local seconds = math.max(0, tonumber(dt) or 0)
+  self.materialTime = (self.materialTime + seconds) % 4096
   if self.cameraX and self.targetCameraX then
-    local seconds = math.max(0, tonumber(dt) or 0)
     local t = 1 - math.exp(-seconds * 10)
     self.cameraX = self.cameraX + (self.targetCameraX - self.cameraX) * t
     self.cameraY = self.cameraY + (self.targetCameraY - self.cameraY) * t
@@ -473,6 +536,7 @@ function Renderer:drawWorld(ctx)
 
   local cellsDrawn, neighborCellsDrawn, actorsDrawn = 0, 0, 0
   local vegetationDrawn, structuresDrawn = 0, 0
+  local waterCellsDrawn, shadowCastersDrawn = 0, 0
   for _, item in ipairs(drawables) do
     if item.type == "cell" then
       local kind = surfaceKind(item.scene.profile, item.scene.overview,
@@ -484,19 +548,24 @@ function Renderer:drawWorld(ctx)
       drawSide(proj, item.x, item.y, z, south, "south", kind)
       drawDetailedTop(proj, item.scene.overview,
                       item.localX, item.localY,
-                      item.x, item.y, z, kind)
+                      item.x, item.y, z, kind,
+                      self.materialTime, self.level)
       cellsDrawn = cellsDrawn + 1
+      if kind == "water" then waterCellsDrawn = waterCellsDrawn + 1 end
       if not item.scene.active then neighborCellsDrawn = neighborCellsDrawn + 1 end
     elseif item.type == "vegetation" then
       drawVegetation(proj, item.x, item.y, self.level)
       vegetationDrawn = vegetationDrawn + 1
+      shadowCastersDrawn = shadowCastersDrawn + 1
     elseif item.type == "structure" then
       drawStructure(proj, item.structure, self.level,
                     item.scene.offsetX, item.scene.offsetY)
       structuresDrawn = structuresDrawn + 1
+      shadowCastersDrawn = shadowCastersDrawn + 1
     else
       drawActor(proj, scenes, item.pose)
       actorsDrawn = actorsDrawn + 1
+      shadowCastersDrawn = shadowCastersDrawn + 1
     end
   end
 
@@ -517,11 +586,13 @@ function Renderer:drawWorld(ctx)
     mapId = snapshot.mapId,
     profile = activeScene.profile.name,
     cells = cellsDrawn,
+    waterCells = waterCellsDrawn,
     neighborCells = neighborCellsDrawn,
     neighborMaps = #scenes - 1,
     actors = actorsDrawn,
     vegetation = vegetationDrawn,
     structures = structuresDrawn,
+    shadowCasters = shadowCastersDrawn,
     level = self.level,
     width = ctx.width,
     height = ctx.height,
