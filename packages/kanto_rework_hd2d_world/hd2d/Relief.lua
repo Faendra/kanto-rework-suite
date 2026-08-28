@@ -75,7 +75,7 @@ end
 local function faceFactors(material)
   local family = material and material.family or "mass"
   if family == "structure" then return 0.74, 0.58 end
-  if family == "vegetation" then return 0.54, 0.43 end
+  if family == "vegetation" then return 0.58, 0.47 end
   if family == "boundary" then return 0.62, 0.49 end
   if family == "landmark" then return 0.69, 0.53 end
   if family == "obstacle" then return 0.77, 0.62 end
@@ -85,7 +85,7 @@ end
 local function shadowAlpha(material)
   local family = material and material.family or "mass"
   if family == "structure" then return 0.115, 0.24 end
-  if family == "vegetation" then return 0.095, 0.20 end
+  if family == "vegetation" then return 0.090, 0.19 end
   if family == "landmark" then return 0.080, 0.18 end
   if family == "boundary" then return 0.060, 0.15 end
   return 0.050, 0.12
@@ -104,15 +104,14 @@ local function paletteTone(host, ctx, map, fromDark, factor, alpha)
          clamp(b * factor, 0, 1), alpha or 1
 end
 
--- Vegetation still carries a strong semantic height in MaterialClassifier so
--- it sorts/readably differs from generic obstacles. Its *solid pedestal* is
--- deliberately lower: the remaining silhouette comes from canopy geometry,
--- avoiding the raised rectangular hedge/tower look exposed by the real-LÖVE
--- synthetic visual gate.
+-- Vegetation's collision footprint is still a continuous mass, but presenting
+-- every blocked source row as a raised slab produces a hedge/tower. Keep only
+-- a low visual pedestal; the semantic height is expressed by the canopy that
+-- is emitted once at the exposed front edge of that mass.
 local function geometryHeight(classifier, material, lift)
   local height = classifier.reliefHeight(material, lift)
   if material and material.family == "vegetation" then
-    return height * 0.58
+    return height * 0.40
   end
   return height
 end
@@ -184,10 +183,9 @@ end
 local function drawFrontRun(host, ctx, proj, map, material, wx0, wx1, wy, height)
   local r, g, b, a
   if material and material.family == "structure" then
-    -- A structure facade should not inherit the darkest world palette swatch:
-    -- that made buildings almost black in the real-LÖVE visual probe. Use a
-    -- mid palette family while roof/side faces retain stronger separation.
     r, g, b, a = paletteTone(host, ctx, map, 2, 0.84, 0.97)
+  elseif material and material.family == "vegetation" then
+    r, g, b, a = paletteTone(host, ctx, map, 2, 0.67, 0.93)
   else
     local frontFactor = faceFactors(material)
     r, g, b, a = host:paletteWallColor(ctx, map, 0.90, frontFactor)
@@ -201,8 +199,13 @@ local function drawFrontRun(host, ctx, proj, map, material, wx0, wx1, wy, height
 end
 
 local function drawSideFace(host, ctx, proj, map, material, wx, wy, height)
-  local _, sideFactor = faceFactors(material)
-  local r, g, b, a = host:paletteWallColor(ctx, map, 0.82, sideFactor)
+  local r, g, b, a
+  if material and material.family == "vegetation" then
+    r, g, b, a = paletteTone(host, ctx, map, 1, 0.56, 0.88)
+  else
+    local _, sideFactor = faceFactors(material)
+    r, g, b, a = host:paletteWallColor(ctx, map, 0.82, sideFactor)
+  end
   local ax, ay = proj:projectTerrain(wx + CELL, wy, 0)
   local bx, by = proj:projectTerrain(wx + CELL, wy + CELL, 0)
   local tax, tay = proj:projectTerrain(wx + CELL, wy, height)
@@ -294,31 +297,44 @@ local function drawGabledRoof(host, ctx, proj, map, mass, ox, oy, height)
 end
 
 local function drawVegetationCrown(host, ctx, proj, map, run)
-  local overhang = CELL * 0.20
-  local crown = math.max(4.4, proj.relief * 0.74)
+  local overhang = CELL * 0.22
+  local crown = math.max(4.8, proj.relief * 0.80)
   local wx0 = run.wx0 - overhang
   local wx1 = run.wx1 + overhang
-  local wy = run.wy + CELL * 0.03
-  local z0 = run.height * 0.48
-  local z1 = run.height + crown * 0.48
-  local shoulder = math.min(CELL * 0.22, (wx1 - wx0) * 0.12)
+  local width = math.max(CELL, wx1 - wx0)
+  local wy = run.wy + CELL * 0.025
+  local z0 = run.height * 0.30
+  local shoulderZ = run.height + crown * 0.20
 
-  -- Sloped shoulders remove the rectangular tower silhouette while preserving
-  -- one connected canopy mass. Pixel-derived crown strips sit above this
-  -- darker apron instead of every source row becoming its own raised slab.
-  local r, g, b, a = paletteTone(host, ctx, map, 1, 0.66, 0.90)
-  local ax, ay = proj:projectTerrain(wx0, wy, z0)
-  local bx, by = proj:projectTerrain(wx1, wy, z0)
-  local tax, tay = proj:projectTerrain(wx0 + shoulder, wy, z1)
-  local tbx, tby = proj:projectTerrain(wx1 - shoulder, wy, z1)
+  -- A deterministic multi-lobed front silhouette removes the rectangular tree
+  -- wall without introducing authored per-map tree models. It is deliberately
+  -- asymmetric enough to read organic, while staying stable frame-to-frame.
+  local points = {
+    { wx0,                 z0 },
+    { wx0 + width * 0.08, shoulderZ },
+    { wx0 + width * 0.22, shoulderZ + crown * 0.42 },
+    { wx0 + width * 0.38, shoulderZ + crown * 0.22 },
+    { wx0 + width * 0.53, shoulderZ + crown * 0.50 },
+    { wx0 + width * 0.70, shoulderZ + crown * 0.25 },
+    { wx0 + width * 0.88, shoulderZ + crown * 0.39 },
+    { wx1,                 shoulderZ },
+    { wx1,                 z0 },
+  }
+  local projected = {}
+  for _, p in ipairs(points) do
+    local sx, sy = proj:projectTerrain(p[1], wy, p[2])
+    projected[#projected + 1] = sx
+    projected[#projected + 1] = sy
+  end
+  local r, g, b, a = paletteTone(host, ctx, map, 1, 0.72, 0.92)
   love.graphics.setColor(r, g, b, a)
-  love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+  love.graphics.polygon("fill", projected)
 
   local cells = math.max(1, math.floor((run.wx1 - run.wx0) / CELL + 0.5))
   drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
-                  run.height + crown * 0.56, 1.12, 0.56, 0.96)
+                  run.height + crown * 0.54, 1.12, 0.50, 0.96)
   drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
-                  run.height + crown, 0.90, 0.36, 0.91)
+                  run.height + crown * 0.88, 0.76, 0.30, 0.92)
 end
 
 function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
@@ -387,10 +403,16 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     local material = materials[sx]
     if material and material.kind == "solid"
        and classifier.sideExposed(map, sx, cy, 1) then
-      local height = geometryHeight(classifier, material, lift)
-      drawSideFace(host, ctx, proj, map, material,
-                   sx * CELL + ox, cy * CELL + oy, height)
-      self.lastSideFaces = self.lastSideFaces + 1
+      -- Interior rows of a vegetation mass no longer emit vertical slab sides;
+      -- only the exposed front row receives a small side plane beneath canopy.
+      local allowSide = material.family ~= "vegetation"
+                        or classifier.frontExposed(map, sx, cy)
+      if allowSide then
+        local height = geometryHeight(classifier, material, lift)
+        drawSideFace(host, ctx, proj, map, material,
+                     sx * CELL + ox, cy * CELL + oy, height)
+        self.lastSideFaces = self.lastSideFaces + 1
+      end
     end
   end
 
@@ -402,10 +424,14 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       while runEnd + 1 <= x1 and sameMass(material, materials[runEnd + 1]) do
         runEnd = runEnd + 1
       end
-      local height = geometryHeight(classifier, material, lift)
-      if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
-                    runEnd - runStart + 1, height) then
-        self.lastTopRuns = self.lastTopRuns + 1
+      -- Repeated vegetation source rows are represented by one canopy at the
+      -- exposed edge. Drawing every row's top texture recreated stacked tiles.
+      if material.family ~= "vegetation" then
+        local height = geometryHeight(classifier, material, lift)
+        if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
+                      runEnd - runStart + 1, height) then
+          self.lastTopRuns = self.lastTopRuns + 1
+        end
       end
       cx = runEnd + 1
     else
