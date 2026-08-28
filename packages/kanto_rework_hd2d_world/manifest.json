@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.2.0-cphd2d05-test3",
+  "version": "0.2.1-cphd2d06-test3p",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS HD-2D TEST3: true isometric scene renderer with a shared textured ground plane, coherent building volumes, scene vegetation/rock objects, upright pixel-art actors, connected-map capture and world-only focal atmosphere. Gameplay remains Gen1Recomp-authoritative."
+  "description": "KRS HD-2D TEST3-P: true three-quarter perspective scene renderer with depth convergence, shared source-textured ground, coherent building volumes, pixel-textured scene objects, upright actors and world-only focal atmosphere. Gameplay remains Gen1Recomp-authoritative."
 }
