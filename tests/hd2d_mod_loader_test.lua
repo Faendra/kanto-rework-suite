@@ -245,6 +245,10 @@ local worldCtx = {
 local rendered = Pipelines.drawWorld("krs_hd2d_world", worldCtx)
 
 assert(rendered ~= nil, "synthetic HD2D world did not produce a canvas")
+assert(exports.renderer.lastOutdoorBackdrop == true,
+  "OVERWORLD synthetic scene did not receive the outdoor atmospheric backdrop")
+assert(exports.renderer.lastBackdropBands >= 4,
+  "outdoor atmospheric horizon was not emitted as multiple restrained bands")
 assert(drawCounts.current >= 2, "current map renderer was not captured")
 assert(drawCounts.neighbor >= 1, "connected-neighbour renderer was not captured")
 assert(exports.relief.lastScenes >= 2,
