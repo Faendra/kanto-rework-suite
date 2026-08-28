@@ -148,7 +148,9 @@ function LivePolish.apply(renderer)
                   or proj.spriteScale
     if scale and scale > 0 then
       local ok = baseDrawActor(self, proxyProjection(proj, nil, scale), row)
-      if ok then self.lastPerspectiveActors = self.lastPerspectiveActors + 1 end
+      if ok then
+        self.lastPerspectiveActors = (self.lastPerspectiveActors or 0) + 1
+      end
       return ok
     end
     return baseDrawActor(self, proj, row)
@@ -160,7 +162,7 @@ function LivePolish.apply(renderer)
     local localTile = proj.screenScale and proj:screenScale(cx, cy, 0)
                       or proj.tileW
     if localTile and localTile > 0 then
-      self.lastPerspectiveVegetation = self.lastPerspectiveVegetation + 1
+      self.lastPerspectiveVegetation = (self.lastPerspectiveVegetation or 0) + 1
       return baseDrawVegetation(self, proxyProjection(proj, localTile, nil), cmd)
     end
     return baseDrawVegetation(self, proj, cmd)
