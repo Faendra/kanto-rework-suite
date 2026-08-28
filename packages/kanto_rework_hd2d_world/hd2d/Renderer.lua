@@ -1,0 +1,341 @@
+local Renderer = {}
+Renderer.__index = Renderer
+
+local CELL = 16
+local STRIP = 4
+local MARGIN_CELLS = 2
+
+local function finite(v)
+  return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
+end
+
+local function normalizeColor(c, fallback)
+  if type(c) ~= "table" then return fallback end
+  local r, g, b = c[1], c[2], c[3]
+  if not (finite(r) and finite(g) and finite(b)) then return fallback end
+  if r > 1 or g > 1 or b > 1 then
+    r, g, b = r / 255, g / 255, b / 255
+  end
+  return r, g, b
+end
+
+function Renderer.new(Projection, MaterialClassifier)
+  return setmetatable({
+    Projection = Projection,
+    MaterialClassifier = MaterialClassifier,
+    level = 0,
+    elapsed = 0,
+    source = nil,
+    output = nil,
+    sourceW = 0,
+    sourceH = 0,
+    outputW = 0,
+    outputH = 0,
+    stripQuad = nil,
+    cellQuad = nil,
+  }, Renderer)
+end
+
+function Renderer:available()
+  return love ~= nil
+     and love.graphics ~= nil
+     and type(love.graphics.newCanvas) == "function"
+     and type(love.graphics.newQuad) == "function"
+end
+
+function Renderer:update(dt, level)
+  self.level = tonumber(level) or 0
+  self.elapsed = self.elapsed + (tonumber(dt) or 0)
+end
+
+local function release(obj)
+  if obj and obj.release then pcall(obj.release, obj) end
+end
+
+function Renderer:invalidate()
+  release(self.source)
+  release(self.output)
+  release(self.stripQuad)
+  release(self.cellQuad)
+  self.source, self.output = nil, nil
+  self.stripQuad, self.cellQuad = nil, nil
+  self.sourceW, self.sourceH = 0, 0
+  self.outputW, self.outputH = 0, 0
+end
+
+function Renderer:ensureCanvases(ctx)
+  local vw = math.max(1, math.floor(ctx.vw or 1))
+  local vh = math.max(1, math.floor(ctx.vh or 1))
+  local ow = math.max(1, math.floor(ctx.width or 1))
+  local oh = math.max(1, math.floor(ctx.height or 1))
+
+  if not self.source or self.sourceW ~= vw or self.sourceH ~= vh then
+    release(self.source)
+    release(self.stripQuad)
+    release(self.cellQuad)
+    self.source = love.graphics.newCanvas(vw, vh)
+    self.source:setFilter("nearest", "nearest")
+    self.sourceW, self.sourceH = vw, vh
+    self.stripQuad = love.graphics.newQuad(0, 0, vw, math.min(STRIP, vh), vw, vh)
+    self.cellQuad = love.graphics.newQuad(0, 0, math.min(CELL, vw),
+                                          math.min(CELL, vh), vw, vh)
+  end
+
+  if not self.output or self.outputW ~= ow or self.outputH ~= oh then
+    release(self.output)
+    self.output = love.graphics.newCanvas(ow, oh)
+    self.output:setFilter("nearest", "nearest")
+    self.outputW, self.outputH = ow, oh
+  end
+end
+
+function Renderer:drawTerrainSource(ctx)
+  local state = ctx.state
+  local map = state and state.map
+  if not (map and map.renderer and ctx.cam) then return false end
+
+  love.graphics.push("all")
+  love.graphics.setCanvas(self.source)
+  love.graphics.clear(0, 0, 0, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+
+  local cam = ctx.cam
+  local bgY = ctx.bgY or cam.y
+  map.renderer:drawBorderFill(cam.x, bgY, ctx.vw, ctx.vh)
+  map.renderer:draw(cam.x, bgY, ctx.vw, ctx.vh)
+  for _, nb in ipairs(state.neighbors or {}) do
+    if nb.map and nb.map.renderer then
+      nb.map.renderer:drawMapOnly(cam.x - (nb.ox or 0),
+                                  bgY - (nb.oy or 0), ctx.vw, ctx.vh)
+    end
+  end
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  return true
+end
+
+function Renderer:drawGroundStrips(proj)
+  love.graphics.setColor(1, 1, 1, 1)
+  local y = 0
+  while y < self.sourceH do
+    local h = math.min(STRIP, self.sourceH - y)
+    self.stripQuad:setViewport(0, y, self.sourceW, h, self.sourceW, self.sourceH)
+    local centerX, sy0, sy1, depth = proj:stripMetrics(y, y + h)
+    local sx = depth * proj.scale
+    local sy = (sy1 - sy0) / h
+    local dx = centerX - self.sourceW * sx * 0.5
+    love.graphics.draw(self.source, self.stripQuad, dx, sy0, 0, sx, sy)
+    y = y + h
+  end
+end
+
+function Renderer:paletteWallColor(ctx, map, alpha, factor)
+  local fallback = { 0.12, 0.14, 0.16 }
+  local palette = ctx.paletteFor and ctx.paletteFor(map) or nil
+  local darkest = type(palette) == "table" and palette[#palette] or nil
+  local r, g, b = normalizeColor(darkest, fallback)
+  if type(r) == "table" then r, g, b = fallback[1], fallback[2], fallback[3] end
+  factor = factor or 0.72
+  return r * factor, g * factor, b * factor, alpha or 0.88
+end
+
+function Renderer:visibleCellRange(map, proj)
+  local x0 = math.floor(proj.camX / CELL) - MARGIN_CELLS
+  local y0 = math.floor(proj.bgY / CELL) - MARGIN_CELLS
+  local x1 = math.ceil((proj.camX + proj.vw) / CELL) + MARGIN_CELLS
+  local y1 = math.ceil((proj.bgY + proj.vh) / CELL) + MARGIN_CELLS
+  x0 = math.max(0, x0)
+  y0 = math.max(0, y0)
+  x1 = math.min((map.widthCells or 0) - 1, x1)
+  y1 = math.min((map.heightCells or 0) - 1, y1)
+  return x0, y0, x1, y1
+end
+
+function Renderer:drawSolidRelief(ctx, proj)
+  local map = ctx.state and ctx.state.map
+  if not map then return end
+  local x0, y0, x1, y1 = self:visibleCellRange(map, proj)
+  if x1 < x0 or y1 < y0 then return end
+
+  local classifier = self.MaterialClassifier
+  local lift = proj.relief
+  local wallR, wallG, wallB, wallA = self:paletteWallColor(ctx, map, 0.90, 0.66)
+  local sideR, sideG, sideB, sideA = self:paletteWallColor(ctx, map, 0.82, 0.54)
+
+  for cy = y0, y1 do
+    for cx = x0, x1 do
+      local material = classifier.classify(map, cx, cy)
+      if material.kind == "solid" then
+        local height = classifier.reliefHeight(material, lift)
+        local wx, wy = cx * CELL, cy * CELL
+
+        if classifier.frontExposed(map, cx, cy) then
+          local ax, ay = proj:projectTerrain(wx, wy + CELL, 0)
+          local bx, by = proj:projectTerrain(wx + CELL, wy + CELL, 0)
+          local tax, tay = proj:projectTerrain(wx, wy + CELL, height)
+          local tbx, tby = proj:projectTerrain(wx + CELL, wy + CELL, height)
+          love.graphics.setColor(wallR, wallG, wallB, wallA)
+          love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+        end
+
+        if classifier.sideExposed(map, cx, cy, 1) then
+          local ax, ay = proj:projectTerrain(wx + CELL, wy, 0)
+          local bx, by = proj:projectTerrain(wx + CELL, wy + CELL, 0)
+          local tax, tay = proj:projectTerrain(wx + CELL, wy, height)
+          local tbx, tby = proj:projectTerrain(wx + CELL, wy + CELL, height)
+          love.graphics.setColor(sideR, sideG, sideB, sideA)
+          love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+        end
+
+        -- Re-sample the already-rendered terrain cell and lift only its top
+        -- surface. This preserves animated/custom tiles and palette packs.
+        local sx = wx - proj.camX
+        local sy = wy - proj.bgY
+        -- Only lift a complete 16x16 source cell. Edge-clipped cells stay on
+        -- the base plane for this frame; this avoids stretching a partial cell
+        -- as the camera scrolls by sub-cell amounts.
+        if sx >= 0 and sy >= 0
+           and sx + CELL <= self.sourceW and sy + CELL <= self.sourceH then
+          self.cellQuad:setViewport(sx, sy, CELL, CELL, self.sourceW, self.sourceH)
+          local metrics = proj:cellMetrics(wx, wy, CELL, height)
+          love.graphics.setColor(1, 1, 1, 1)
+          love.graphics.draw(self.source, self.cellQuad, metrics.x, metrics.y,
+                             0, metrics.width / CELL, metrics.height / CELL)
+        end
+      end
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function actorPose(actor)
+  if not actor or type(actor.pose) ~= "function" then return nil end
+  local ok, sprite, px, py, facing, phase, flip, hopping = pcall(actor.pose, actor)
+  if not ok or not sprite or not finite(px) or not finite(py) then return nil end
+  return {
+    actor = actor, sprite = sprite, px = px, py = py, facing = facing,
+    phase = phase, flip = flip, hopping = hopping,
+  }
+end
+
+function Renderer:collectActors(state)
+  local out = {}
+  for _, e in ipairs(state.entities or {}) do
+    if not ((state.flyAnim or state.flyArrive or state.playerHidden)
+            and e == state.player) then
+      local row = actorPose(e)
+      if row then out[#out + 1] = row end
+    end
+  end
+  for _, g in ipairs(state.ghosts or {}) do
+    local row = actorPose(g.npc)
+    if row then
+      row.ox, row.oy = g.ox or 0, g.oy or 0
+      out[#out + 1] = row
+    end
+  end
+  table.sort(out, function(a, b)
+    local ay = a.py + (a.oy or 0)
+    local by = b.py + (b.oy or 0)
+    if ay ~= by then return ay < by end
+    return tostring(a.actor.id or "") < tostring(b.actor.id or "")
+  end)
+  return out
+end
+
+function Renderer:drawShadow(proj, row)
+  local wx = row.px + (row.ox or 0) + 8
+  local wy = row.py + (row.oy or 0) + 16
+  local sx, sy, depth = proj:projectWorld(wx, wy, 0)
+  love.graphics.setColor(0, 0, 0, 0.18)
+  love.graphics.ellipse("fill", sx, sy - proj.scale * 0.7,
+                        5.2 * proj.scale * depth,
+                        1.7 * proj.scale)
+end
+
+function Renderer:drawActor(proj, row)
+  local sprite = row.sprite
+  if type(sprite.getPoseGeometry) ~= "function"
+     or type(sprite.resolveImage) ~= "function" then return end
+  local okGeom, geom = pcall(sprite.getPoseGeometry, sprite, row.facing,
+                             row.phase, row.flip)
+  local okImage, image = pcall(sprite.resolveImage, sprite)
+  if not okGeom or not okImage or not geom or not image then return end
+
+  local wx = row.px + (row.ox or 0) + 8
+  local wy = row.py + (row.oy or 0) + 12
+  local sx, sy = proj:projectWorld(wx, wy, 0)
+  local scale = proj.scale
+  local x = sx - (geom.anchorX or geom.width * 0.5) * scale
+  local y = sy - (geom.anchorY or geom.height) * scale
+  love.graphics.setColor(1, 1, 1, 1)
+  if geom.mirror then
+    love.graphics.draw(image, geom.quad,
+                       x + geom.width * scale, y, 0, -scale, scale)
+  else
+    love.graphics.draw(image, geom.quad, x, y, 0, scale, scale)
+  end
+end
+
+function Renderer:drawActors(ctx, proj)
+  local rows = self:collectActors(ctx.state)
+  for _, row in ipairs(rows) do self:drawShadow(proj, row) end
+  for _, row in ipairs(rows) do self:drawActor(proj, row) end
+end
+
+function Renderer:drawWaterLight(ctx, proj)
+  if self.level < 2 then return end
+  local map = ctx.state and ctx.state.map
+  if not map then return end
+  local p = ctx.state.player
+  if not p then return end
+  -- Restrained moving highlight around the player's local water neighbourhood.
+  -- It adds material separation without replacing the engine's animated water.
+  local phase = (math.sin(self.elapsed * 1.5) + 1) * 0.5
+  local radius = 5
+  local cx0, cy0 = p.cellX or 0, p.cellY or 0
+  love.graphics.setColor(1, 1, 1, 0.025 + phase * 0.025)
+  for cy = cy0 - radius, cy0 + radius do
+    for cx = cx0 - radius, cx0 + radius do
+      local material = self.MaterialClassifier.classify(map, cx, cy)
+      if material.kind == "water" then
+        local wx, wy = cx * CELL, cy * CELL
+        local a = proj:cellMetrics(wx, wy, CELL, 0)
+        love.graphics.rectangle("fill", a.x, a.y + a.height * 0.62,
+                                a.width, math.max(1, proj.scale * 0.55))
+      end
+    end
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+function Renderer:drawWorld(ctx)
+  if not self:available() then return nil end
+  if type(ctx) ~= "table" or not ctx.state or not ctx.state.map
+     or not ctx.cam or not ctx.vw or not ctx.vh or not ctx.width or not ctx.height then
+    return nil
+  end
+
+  self:ensureCanvases(ctx)
+  if not self:drawTerrainSource(ctx) then return nil end
+
+  local proj = self.Projection.new(ctx, math.max(1, self.level))
+  love.graphics.push("all")
+  love.graphics.setCanvas(self.output)
+  love.graphics.clear(0.035, 0.045, 0.055, 1)
+  self:drawGroundStrips(proj)
+  self:drawSolidRelief(ctx, proj)
+  self:drawWaterLight(ctx, proj)
+  self:drawActors(ctx, proj)
+  if type(ctx.drawFx) == "function" then
+    ctx.drawFx(function(wx, wy)
+      local sx, sy = proj:projectWorld(wx, wy, 0)
+      return sx, sy
+    end, proj.scale)
+  end
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  return self.output
+end
+
+return Renderer
