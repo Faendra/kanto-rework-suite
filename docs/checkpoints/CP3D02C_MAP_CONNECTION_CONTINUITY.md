@@ -1,6 +1,6 @@
 # CP3D02C — Direct map-connection continuity
 
-Status: IMPLEMENTED / STATICALLY AUDITED / RUNTIME NOT TESTED
+Status: IMPLEMENTED / LUA 5.1 STATIC GATE PASS / RUNTIME NOT TESTED
 Branch: `experiment/sol-3dworld-hd2d`
 Engine target: Gen1Recomp v0.2.32
 Parent visual checkpoint: CP3D02A
@@ -74,9 +74,24 @@ When the active map id changes:
 
 Therefore door warps, Fly, teleport and unrelated scripted warps are not falsely treated as seamless geography.
 
+## Static validation
+
+A branch-local GitHub Actions gate was added at `.github/workflows/sol3d-static.yml`.
+
+Run `33169370917` completed successfully against commit `97f6aab8c31708d16e626a2e46a24371db40911a`.
+
+Validated by that run:
+
+- checkout succeeded;
+- Lua 5.1 installed successfully;
+- every `.lua` file under `packages/kanto_rework_3dworld_hd2d` passed `luac5.1 -p`;
+- `manifest.json` passed `python3 -m json.tool`.
+
+This is a syntax/integrity gate only. It does not validate LOVE shader compilation, Mod API runtime behaviour, OpenGL output, gameplay parity or visual quality.
+
 ## Known limitations
 
-1. **Runtime not tested.** Static source/API inspection does not prove Windows/OpenGL behaviour.
+1. **Runtime not tested.** Static source/API inspection and `luac5.1 -p` do not prove Windows/OpenGL behaviour.
 2. Neighbor previews are one hop only; the native engine may render farther neighbors in wide/zoomed views.
 3. Neighbor previews use semantic block/tile reconstruction and do not currently have the active map's `tileDetailRows` material raster.
 4. Dynamic block mutations on a non-active neighboring map are not guaranteed to be reflected until that map becomes active. The preview must therefore never be treated as gameplay authority.
@@ -101,7 +116,7 @@ Therefore door warps, Fly, teleport and unrelated scripted warps are not falsely
 
 ## Acceptance state
 
-**Not SAFE.** Implementation exists and is structurally consistent with the v0.2.32 connection model, but actual engine execution and screenshots are still required.
+**Not SAFE.** Syntax and manifest integrity pass automatically, and the implementation is structurally consistent with the v0.2.32 connection model, but actual engine execution and screenshots are still required.
 
 ## Next
 
