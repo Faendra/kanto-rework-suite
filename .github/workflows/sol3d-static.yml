@@ -57,7 +57,17 @@ jobs:
       - name: Load KRS through official mod loader
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           cd /tmp/gen1recomp
           KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_3dworld_hd2d" \
-            luajit "$GITHUB_WORKSPACE/tests/sol3d_mod_loader_test.lua"
+            luajit "$GITHUB_WORKSPACE/tests/sol3d_mod_loader_test.lua" \
+            2>&1 | tee "$GITHUB_WORKSPACE/sol3d-loader.log"
+
+      - name: Upload loader diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol3d-loader-diagnostic
+          path: sol3d-loader.log
+          if-no-files-found: error
+          retention-days: 7
