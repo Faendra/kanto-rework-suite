@@ -43,12 +43,27 @@ end
 
 local Projection = loadLocal("hd2d.Projection", "hd2d/Projection.lua")
 local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialClassifier.lua")
+local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
 local renderer = Renderer.new(Projection, MaterialClassifier)
+local occlusion = Occlusion.new()
+
+-- Renderer owns the world canvas. Insert the terrain-priority overlay after
+-- all upright actors but before ctx.drawFx, matching Gen1Recomp's ordering:
+-- grass hides actor feet, while standing/dust/heal FX remain free to render
+-- afterward. Keeping this as a composable pass avoids coupling grass rules to
+-- the camera/terrain renderer itself.
+local drawActors = renderer.drawActors
+renderer.drawActors = function(self, ctx, proj)
+  drawActors(self, ctx, proj)
+  occlusion:draw(ctx, proj)
+end
+
 mod.exports.renderer = renderer
 mod.exports.projection = Projection
 mod.exports.materialClassifier = MaterialClassifier
+mod.exports.occlusion = occlusion
 
 mod.content.render_pipelines:register("krs_hd2d_world", {
   label = "KRS HD2D WORLD",
@@ -66,5 +81,6 @@ mod.content.render_pipelines:register("krs_hd2d_world", {
   end,
   invalidate = function()
     renderer:invalidate()
+    occlusion:invalidate()
   end,
 })
