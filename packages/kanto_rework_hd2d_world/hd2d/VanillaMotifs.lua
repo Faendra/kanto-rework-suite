@@ -2,11 +2,14 @@ local VanillaMotifs = {}
 
 local OVERWORLD = "OVERWORLD"
 
--- Canonical 2x2 visual motifs from pokered's Overworld tileset/blockset.
--- These are tile identities, not map coordinates: any OVERWORLD cell using the
--- same vanilla motif receives the same presentation semantics.
-local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
-local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
+-- Canonical 2x2 visual motifs verified directly against the generated
+-- Pokemon Red OVERWORLD atlas. These are tile identities, not map coordinates:
+-- any OVERWORLD cell using the same vanilla pixels receives the same semantics.
+--
+-- $2A/$2B/$3A/$3B compose the round rock/boulder tile.
+-- $40/$41/$50/$51 compose the dense tree/foliage tile.
+local TREE = { 0x40, 0x41, 0x50, 0x51 }
+local BOULDER = { 0x2A, 0x2B, 0x3A, 0x3B }
 local LAWN_TILE = 0x2C
 local PATH_TILE = 0x39
 
