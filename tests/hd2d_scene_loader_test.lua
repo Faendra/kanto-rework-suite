@@ -31,6 +31,7 @@ local RELATIVE_FILES = {
   "hd2d/SceneProjection.lua",
   "hd2d/SceneRenderer.lua",
   "hd2d/SceneStyle.lua",
+  "hd2d/LivePolish.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/WorldAtmosphere.lua",
   -- Transitional compatibility exports still loaded by main.lua.
@@ -106,6 +107,7 @@ assert(type(exports.renderer) == "table", "scene renderer export missing")
 assert(type(exports.projection) == "table", "scene projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
 assert(type(exports.sceneStyle) == "table", "scene style export missing")
+assert(type(exports.livePolish) == "table", "live polish export missing")
 assert(type(exports.atmosphere) == "table", "atmosphere export missing")
 
 Pipelines.install(data)
@@ -170,6 +172,11 @@ function map:cellTile(x, y)
   if self:isWaterCell(x, y) then return 0x14 end
   return 0x01
 end
+function map:blockAt(bx, by)
+  -- Synthetic loader map intentionally uses no vanilla tree block ids; the
+  -- legacy repeated-tile classifier remains exercised alongside LivePolish.
+  return 0x01
+end
 
 local neighborMap = {
   id = "SYNTHETIC_ROUTE",
@@ -190,6 +197,7 @@ function neighborMap:cellTile(x, y)
   if y >= 1 and y <= 2 and x <= 4 then return 0x52 end
   return 0x01
 end
+function neighborMap:blockAt() return 0x01 end
 
 local actorQuad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
 local actorImage = love.graphics.newCanvas(16, 16)
@@ -238,7 +246,7 @@ local cx, cy = proj:cell(0, 1, 0)
 assert((bx - ax) * (cx - ax) < 0,
   "world axes do not rotate in opposite X directions; projection regressed to a flat trapezoid")
 assert(by > ay and cy > ay,
-  "both world axes must recede downward in the isometric camera")
+  "both world axes must recede downward in the perspective camera")
 
 local rendered = Pipelines.drawWorld("krs_hd2d_world", worldCtx)
 assert(rendered ~= nil, "scene renderer produced no canvas")
@@ -250,6 +258,10 @@ assert(exports.renderer.lastVegetation >= 1,
   "interior repeated mass did not become upright vegetation")
 assert(exports.renderer.lastActors == 1,
   "upright actor billboard was not depth composed")
+assert((exports.renderer.lastPerspectiveActors or 0) == 1,
+  "actor billboard did not use live perspective scaling")
+assert((exports.renderer.lastApronCells or 0) > 0,
+  "outdoor map did not receive a non-playable world apron")
 assert(exports.renderer.lastWaterCells >= 1,
   "water contact plane was not emitted")
 assert(exports.renderer.lastCommands >= 3,
