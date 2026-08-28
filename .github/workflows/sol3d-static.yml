@@ -1,0 +1,36 @@
+name: Sol 3DWorld static checks
+
+on:
+  push:
+    branches:
+      - experiment/sol-3dworld-hd2d
+    paths:
+      - 'packages/kanto_rework_3dworld_hd2d/**'
+      - '.github/workflows/sol3d-static.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Compile-check Lua sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          find packages/kanto_rework_3dworld_hd2d -type f -name '*.lua' -print0 \
+            | sort -z \
+            | xargs -0 -n1 luac5.1 -p
+
+      - name: Validate manifest JSON
+        run: python3 -m json.tool packages/kanto_rework_3dworld_hd2d/manifest.json >/dev/null
