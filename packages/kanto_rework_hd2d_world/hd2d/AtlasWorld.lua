@@ -113,8 +113,9 @@ end
 
 local function drawAtlasQuad(renderer, proj, x, y, z, rect)
   local image = rect and rect.atlasImage
-  if not (image and renderer.mesh and renderer.mesh.setVertices
-          and renderer.mesh.setTexture) then return nil end
+  if not image then return nil end
+  if not (renderer.mesh and renderer.mesh.setVertices
+          and renderer.mesh.setTexture) then return false end
   local points = proj:cellPolygon(x, y, z)
   local vertices = {
     { points[1], points[2], 0, 0, 1, 1, 1, 1 },
@@ -149,6 +150,7 @@ function AtlasWorld.apply(renderer, AtlasSource)
     self.lastAtlasDirectFrames = 0
     self.lastCompatibilityCaptureFrames = 0
     self.lastFlatSourceFallbacks = 0
+    self.lastAtlasMeshFallbacks = 0
     self._atlasDirectFrame = false
   end
 
@@ -244,9 +246,17 @@ function AtlasWorld.apply(renderer, AtlasSource)
 
   local baseDrawTexturedQuad = renderer.drawTexturedQuad
   renderer.drawTexturedQuad = function(self, proj, x, y, z, rect, fallback)
-    local result = drawAtlasQuad(self, proj, x, y, z, rect)
-    if result ~= nil then return result end
-    if self._atlasDirectFrame and rect ~= nil then
+    if rect and rect.atlasImage then
+      local result = drawAtlasQuad(self, proj, x, y, z, rect)
+      if result == true then return true end
+      if self._atlasDirectFrame then
+        -- Headless loader stubs may not implement the dynamic mesh used to
+        -- rasterize atlas pixels. That is a graphics-capability fallback, not a
+        -- return to the flattened map framebuffer. Real LÖVE gates require 0.
+        self.lastAtlasMeshFallbacks = (self.lastAtlasMeshFallbacks or 0) + 1
+        return baseDrawTexturedQuad(self, proj, x, y, z, nil, fallback)
+      end
+    elseif self._atlasDirectFrame and rect ~= nil then
       self.lastFlatSourceFallbacks = (self.lastFlatSourceFallbacks or 0) + 1
       return baseDrawTexturedQuad(self, proj, x, y, z, nil, fallback)
     end
