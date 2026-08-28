@@ -33,6 +33,8 @@ local RELATIVE_FILES = {
   "hd2d/SceneStyle.lua",
   "hd2d/LivePolish.lua",
   "hd2d/DioramaPolish.lua",
+  "hd2d/NaturalForms.lua",
+  "hd2d/SceneContinuity.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/WorldAtmosphere.lua",
   -- Transitional compatibility exports still loaded by main.lua.
@@ -110,6 +112,8 @@ assert(type(exports.materialClassifier) == "table", "material classifier export 
 assert(type(exports.sceneStyle) == "table", "scene style export missing")
 assert(type(exports.livePolish) == "table", "live polish export missing")
 assert(type(exports.dioramaPolish) == "table", "diorama polish export missing")
+assert(type(exports.naturalForms) == "table", "natural forms export missing")
+assert(type(exports.sceneContinuity) == "table", "scene continuity export missing")
 assert(type(exports.atmosphere) == "table", "atmosphere export missing")
 
 Pipelines.install(data)
