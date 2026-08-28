@@ -83,6 +83,23 @@ renderer.drawActors = function(self, ctx, proj)
   return depthComposer:draw(self, ctx, proj)
 end
 
+local function playerFocusY(canvas, ctx)
+  if type(ctx) ~= "table" or not ctx.state or not ctx.state.player
+     or not ctx.state.map or not canvas then return nil end
+  local player = ctx.state.player
+  if type(player.px) ~= "number" or type(player.py) ~= "number" then return nil end
+  if not (ctx.vw and ctx.vh and ctx.width and ctx.height and ctx.cam) then return nil end
+
+  local ok, proj = pcall(Projection.new, ctx, math.max(1, renderer.level))
+  if not ok or not proj then return nil end
+  local wx, wy = player.px + 8, player.py + 16
+  local surfaceZ = renderer:surfaceZForWorld(ctx.state.map, wx, wy)
+  local _, sy = proj:projectWorld(wx, wy, surfaceZ)
+  local h = canvas.getHeight and canvas:getHeight() or 0
+  if type(sy) ~= "number" or h <= 0 then return nil end
+  return sy / h
+end
+
 mod.exports.renderer = renderer
 mod.exports.projection = Projection
 mod.exports.materialClassifier = MaterialClassifier
@@ -107,9 +124,12 @@ mod.content.render_pipelines:register("krs_hd2d_world", {
     return renderer:drawWorld(ctx)
   end,
   -- World-only atmosphere deliberately happens before Gen1Recomp composites
-  -- dialog boxes/menus, so the HD-2D focus treatment never softens UI text.
+  -- dialog boxes/menus. The focus band follows the player's projected ground
+  -- baseline when the full world context is available, so gameplay readability
+  -- stays sharp even while DEPTH/CINEMA soften distant scenery.
   worldPresent = function(canvas, ctx)
-    return atmosphere:present(canvas, ctx, renderer.level)
+    return atmosphere:present(canvas, ctx, renderer.level,
+                              playerFocusY(canvas, ctx))
   end,
   invalidate = function()
     renderer:invalidate()
