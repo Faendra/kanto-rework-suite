@@ -69,13 +69,13 @@ function love.load()
     renderer:update(0, 2)
     local atmosphere = Atmosphere.new()
 
-    local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
-    local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
+    -- Verified directly against generated/tilesets/overworld.png:
+    -- 40/41/50/51 = dense tree/foliage; 2A/2B/3A/3B = round boulder.
+    local TREE = { 0x40, 0x41, 0x50, 0x51 }
+    local BOULDER = { 0x2A, 0x2B, 0x3A, 0x3B }
     local LAWN, PATH, HOUSE = 0x2C, 0x39, 0x30
     local W, H = 14, 12
 
-    -- Runtime-style 16x6 atlas, same public surface as Gen1Recomp's
-    -- TileRenderer.image/quads. Nothing below is drawn through the flat map.
     local atlas = love.graphics.newCanvas(128, 48)
     love.graphics.setCanvas(atlas)
     love.graphics.clear(0.11, 0.14, 0.12, 1)
@@ -105,18 +105,10 @@ function love.load()
 
     local forbiddenFlatCalls = 0
     local mapRenderer = { image = atlas, quads = quads }
-    function mapRenderer:drawBorderFill()
-      forbiddenFlatCalls = forbiddenFlatCalls + 1
-    end
-    function mapRenderer:draw()
-      forbiddenFlatCalls = forbiddenFlatCalls + 1
-    end
-    function mapRenderer:drawMapOnly()
-      forbiddenFlatCalls = forbiddenFlatCalls + 1
-    end
-    function mapRenderer:drawCellBottom()
-      forbiddenFlatCalls = forbiddenFlatCalls + 1
-    end
+    function mapRenderer:drawBorderFill() forbiddenFlatCalls = forbiddenFlatCalls + 1 end
+    function mapRenderer:draw() forbiddenFlatCalls = forbiddenFlatCalls + 1 end
+    function mapRenderer:drawMapOnly() forbiddenFlatCalls = forbiddenFlatCalls + 1 end
+    function mapRenderer:drawCellBottom() forbiddenFlatCalls = forbiddenFlatCalls + 1 end
 
     local blocked = {}
     local function put(x, y, kind) blocked[y * 64 + x] = kind end
@@ -131,9 +123,7 @@ function love.load()
       def = { tileset = "OVERWORLD" },
       widthCells = W, heightCells = H, renderer = mapRenderer,
     }
-    function map:inBounds(x, y)
-      return x >= 0 and y >= 0 and x < W and y < H
-    end
+    function map:inBounds(x, y) return x >= 0 and y >= 0 and x < W and y < H end
     function map:isWaterCell() return false end
     function map:isGrassCell() return false end
     function map:isWarpTileCell(x, y) return x == 9 and y == 6 end
@@ -141,9 +131,7 @@ function love.load()
       if self:isWarpTileCell(x, y) then return { index = 1 } end
       return nil
     end
-    function map:isWalkableCell(x, y)
-      return blocked[y * 64 + x] == nil
-    end
+    function map:isWalkableCell(x, y) return blocked[y * 64 + x] == nil end
     function map:cellTile(x, y)
       local kind = blocked[y * 64 + x]
       if kind == "tree" then return TREE[3] end
@@ -191,9 +179,7 @@ function love.load()
       resolveImage = function() return actorImage end,
     }
     local player = { id = "RED", px = 6 * CELL, py = 7 * CELL }
-    function player:pose()
-      return sprite, self.px, self.py, "down", 0, false, false
-    end
+    function player:pose() return sprite, self.px, self.py, "down", 0, false, false end
 
     local state = {
       map = map, neighbors = {}, entities = { player }, ghosts = {}, player = player,
@@ -203,9 +189,7 @@ function love.load()
       level = 2, scale = 4, state = state,
       cam = { x = 24, y = 16 }, bgY = 16,
       paletteFor = function()
-        return {
-          {245,240,210}, {170,190,132}, {92,110,76}, {32,39,31},
-        }
+        return { {245,240,210}, {170,190,132}, {92,110,76}, {32,39,31} }
       end,
       drawFx = function() end,
     }
@@ -222,6 +206,8 @@ function love.load()
            "TEST8 unexpectedly used compatibility capture")
     assert((renderer.lastFlatSourceFallbacks or 0) == 0,
            "TEST8 leaked to flattened framebuffer textures")
+    assert((renderer.lastAtlasMeshFallbacks or 0) == 0,
+           "TEST8 real LÖVE failed to rasterize direct atlas meshes")
     assert((renderer.lastAtlasGroundCells or 0) >= 50,
            "TEST8 did not atlas-texture enough terrain cells")
     assert((renderer.lastAtlasDonorGroundCells or 0) >= 8,
