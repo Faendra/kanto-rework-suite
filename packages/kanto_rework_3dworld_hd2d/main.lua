@@ -45,6 +45,7 @@ local function loadLocal(name, path)
 end
 
 loadLocal("sol3d.NeighborScenes", "sol3d/NeighborScenes.lua")
+local CameraContinuity = loadLocal("sol3d.CameraContinuity", "sol3d/CameraContinuity.lua")
 local WorldAdapter = loadLocal("sol3d.WorldAdapter", "sol3d/WorldAdapter.lua")
 loadLocal("sol3d.Projection", "sol3d/Projection.lua")
 loadLocal("sol3d.SceneProfiles", "sol3d/SceneProfiles.lua")
@@ -72,6 +73,10 @@ mod.content.render_pipelines:register("krs_3dworld", {
     presentation:update(dt, level)
   end,
   drawWorld = function(ctx)
+    -- A direct map connection changes the local coordinate root.  Preserve
+    -- the equivalent camera point before Renderer sees the new root; normal
+    -- door/teleport/fly/script warps keep the renderer's intentional snap.
+    CameraContinuity.prepare(renderer, adapter, mod)
     return renderer:drawWorld(ctx)
   end,
   worldPresent = function(canvas, ctx)
