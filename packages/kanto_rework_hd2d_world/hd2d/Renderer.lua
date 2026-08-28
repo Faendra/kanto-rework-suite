@@ -5,6 +5,13 @@ local CELL = 16
 local STRIP = 4
 local MARGIN_CELLS = 2
 
+local OUTDOOR_TILESETS = {
+  OVERWORLD = true,
+  FOREST = true,
+  SHIP_PORT = true,
+  PLATEAU = true,
+}
+
 local function finite(v)
   return type(v) == "number" and v == v and v ~= math.huge and v ~= -math.huge
 end
@@ -25,6 +32,27 @@ local function normalizeColor(c, fallback)
   return r, g, b
 end
 
+local function colorTriple(c, fallback)
+  local r, g, b = normalizeColor(c, fallback)
+  if type(r) == "table" then
+    return fallback[1], fallback[2], fallback[3]
+  end
+  return r, g, b
+end
+
+local function mix(a, b, t)
+  return a + (b - a) * t
+end
+
+local function smooth01(t)
+  t = clamp(t, 0, 1)
+  return t * t * (3 - 2 * t)
+end
+
+local function mapTileset(map)
+  return map and map.def and map.def.tileset or nil
+end
+
 function Renderer.new(Projection, MaterialClassifier)
   return setmetatable({
     Projection = Projection,
@@ -40,6 +68,8 @@ function Renderer.new(Projection, MaterialClassifier)
     stripQuad = nil,
     cellQuad = nil,
     lastFxWaterAnchors = 0,
+    lastOutdoorBackdrop = false,
+    lastBackdropBands = 0,
   }, Renderer)
 end
 
@@ -69,6 +99,8 @@ function Renderer:invalidate()
   self.sourceW, self.sourceH = 0, 0
   self.outputW, self.outputH = 0, 0
   self.lastFxWaterAnchors = 0
+  self.lastOutdoorBackdrop = false
+  self.lastBackdropBands = 0
 end
 
 function Renderer:ensureCanvases(ctx)
@@ -145,6 +177,67 @@ function Renderer:paletteWallColor(ctx, map, alpha, factor)
   if type(r) == "table" then r, g, b = fallback[1], fallback[2], fallback[3] end
   factor = factor or 0.72
   return r * factor, g * factor, b * factor, alpha or 0.88
+end
+
+-- Fill only the projection space that the terrain cannot cover. Outdoor maps
+-- get a restrained palette-derived atmospheric horizon; interiors/caves keep
+-- a dark neutral surround. This is context-derived from the Gen I tileset,
+-- never a map-id profile, and therefore cannot accidentally paint a sky inside
+-- a building or cavern.
+function Renderer:drawBackdrop(ctx, proj)
+  local map = ctx.state and ctx.state.map
+  local tileset = mapTileset(map)
+  local palette = ctx.paletteFor and ctx.paletteFor(map) or nil
+  self.lastOutdoorBackdrop = OUTDOOR_TILESETS[tileset] == true
+  self.lastBackdropBands = 0
+
+  if not self.lastOutdoorBackdrop then
+    local fallback = { 0.035, 0.045, 0.055 }
+    local darkest = type(palette) == "table" and palette[#palette] or nil
+    local r, g, b = colorTriple(darkest, fallback)
+    love.graphics.clear(clamp(r * 0.34, 0.018, 0.12),
+                        clamp(g * 0.36, 0.020, 0.13),
+                        clamp(b * 0.40, 0.024, 0.15), 1)
+    return
+  end
+
+  local fallbackLight = { 0.70, 0.78, 0.80 }
+  local fallbackMid = { 0.43, 0.53, 0.50 }
+  local light = type(palette) == "table" and (palette[2] or palette[1]) or nil
+  local mid = type(palette) == "table" and (palette[3] or palette[2]) or nil
+  local lr, lg, lb = colorTriple(light, fallbackLight)
+  local mr, mg, mb = colorTriple(mid, fallbackMid)
+
+  -- Blend toward a cool neutral rather than inventing a saturated blue sky;
+  -- this keeps Red/Blue/Yellow palettes recognizable while creating the air
+  -- separation expected from an HD-2D diorama.
+  local cool = { 0.72, 0.79, 0.82 }
+  local haze = { 0.52, 0.61, 0.62 }
+  local intensity = 0.34 + clamp((self.level - 1) * 0.04, 0, 0.08)
+  local topR = mix(lr, cool[1], intensity)
+  local topG = mix(lg, cool[2], intensity)
+  local topB = mix(lb, cool[3], intensity)
+  local horR = mix(mr, haze[1], 0.38)
+  local horG = mix(mg, haze[2], 0.38)
+  local horB = mix(mb, haze[3], 0.38)
+
+  love.graphics.clear(topR, topG, topB, 1)
+
+  local horizonY = clamp(math.floor((proj.top or 0) + proj.scale * 5 + 0.5),
+                         1, self.outputH)
+  local bands = 6
+  for i = 1, bands do
+    local t = smooth01((i - 1) / math.max(1, bands - 1))
+    local r = mix(topR, horR, t)
+    local g = mix(topG, horG, t)
+    local b = mix(topB, horB, t)
+    local y0 = math.floor((i - 1) * horizonY / bands)
+    local y1 = math.ceil(i * horizonY / bands)
+    love.graphics.setColor(r, g, b, 1)
+    love.graphics.rectangle("fill", 0, y0, self.outputW, math.max(1, y1 - y0))
+    self.lastBackdropBands = self.lastBackdropBands + 1
+  end
+  love.graphics.setColor(1, 1, 1, 1)
 end
 
 function Renderer:visibleCellRange(map, proj)
@@ -357,7 +450,7 @@ function Renderer:drawWorld(ctx)
   local proj = self.Projection.new(ctx, math.max(1, self.level))
   love.graphics.push("all")
   love.graphics.setCanvas(self.output)
-  love.graphics.clear(0.035, 0.045, 0.055, 1)
+  self:drawBackdrop(ctx, proj)
   self:drawGroundStrips(proj)
   self:drawSolidRelief(ctx, proj)
   self:drawWaterLight(ctx, proj)
