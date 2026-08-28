@@ -12,6 +12,7 @@ on:
       - 'tests/love_hd2d_style_gate/**'
       - 'tests/love_hd2d_live_polish_gate/**'
       - 'tests/love_hd2d_scene_gate/**'
+      - 'tests/love_hd2d_test5_scene_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -44,6 +45,7 @@ jobs:
           luac5.1 -p tests/love_hd2d_style_gate/main.lua
           luac5.1 -p tests/love_hd2d_live_polish_gate/main.lua
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
+          luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
@@ -123,6 +125,24 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate \
             2>&1 | tee hd2d-love-live-polish.log
 
+      - name: Render TEST5 outdoor and interior dioramas
+        shell: bash
+        run: |
+          set -euo pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_test5_scene_gate \
+            2>&1 | tee hd2d-love-test5.log
+          find "$HOME/.local/share/love" -type f \
+            \( -name 'hd2d-test5-outdoor-raw.png' \
+            -o -name 'hd2d-test5-outdoor-depth.png' \
+            -o -name 'hd2d-test5-interior-raw.png' \
+            -o -name 'hd2d-test5-interior-depth.png' \) \
+            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          test -s hd2d-test5-outdoor-raw.png
+          test -s hd2d-test5-outdoor-depth.png
+          test -s hd2d-test5-interior-raw.png
+          test -s hd2d-test5-interior-depth.png
+
       - name: Render true synthetic diorama on real LÖVE
         shell: bash
         run: |
@@ -145,21 +165,26 @@ jobs:
             hd2d-love-shader.log
             hd2d-love-style.log
             hd2d-love-live-polish.log
+            hd2d-love-test5.log
             hd2d-love-scene.log
             hd2d-scene-raw.png
             hd2d-scene-depth.png
+            hd2d-test5-outdoor-raw.png
+            hd2d-test5-outdoor-depth.png
+            hd2d-test5-interior-raw.png
+            hd2d-test5-interior-depth.png
           if-no-files-found: warn
           retention-days: 7
 
   package-live-test:
-    name: Package validated TEST4 build
+    name: Package validated TEST5 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
 
-      - name: Verify TEST4 manifest
+      - name: Verify TEST5 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -169,29 +194,29 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.2-cphd2d07-test4'
+          assert data['version'] == '0.2.3-cphd2d08-test5'
           PY
 
-      - name: Build installable TEST4 archive
+      - name: Build installable TEST5 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d07-test4.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d08-test5.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d07-test4.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d07-test4.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d07-test4.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d08-test5.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d08-test5.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d08-test5.zip
 
-      - name: Upload TEST4 build
+      - name: Upload TEST5 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test4-build
+          name: chatgpt-hd2d-test5-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d07-test4.zip
-            dist/kanto_rework_hd2d_world-cphd2d07-test4.sha256
+            dist/kanto_rework_hd2d_world-cphd2d08-test5.zip
+            dist/kanto_rework_hd2d_world-cphd2d08-test5.sha256
           if-no-files-found: error
           retention-days: 14
