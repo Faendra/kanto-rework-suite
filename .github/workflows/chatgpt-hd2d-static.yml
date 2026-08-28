@@ -8,6 +8,7 @@ on:
       - 'packages/kanto_rework_hd2d_world/**'
       - 'tests/hd2d_projection_contract.lua'
       - 'tests/hd2d_mod_loader_test.lua'
+      - 'tests/love_hd2d_shader_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -36,6 +37,7 @@ jobs:
             | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/hd2d_projection_contract.lua
           luac5.1 -p tests/hd2d_mod_loader_test.lua
+          luac5.1 -p tests/love_hd2d_shader_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
@@ -75,5 +77,35 @@ jobs:
         with:
           name: chatgpt-hd2d-loader-diagnostic
           path: hd2d-loader.log
+          if-no-files-found: error
+          retention-days: 7
+
+  love-shader:
+    name: Real LÖVE world-atmosphere shader
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout KRS
+        uses: actions/checkout@v4
+
+      - name: Install LÖVE and virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y love xvfb
+          love --version
+
+      - name: Compile and execute world atmosphere on real LÖVE
+        shell: bash
+        run: |
+          set -o pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
+            2>&1 | tee hd2d-love-shader.log
+
+      - name: Upload LÖVE shader diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-love-shader-diagnostic
+          path: hd2d-love-shader.log
           if-no-files-found: error
           retention-days: 7
