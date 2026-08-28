@@ -9,6 +9,7 @@ on:
       - 'tests/hd2d_scene_contract.lua'
       - 'tests/hd2d_scene_loader_test.lua'
       - 'tests/love_hd2d_shader_gate/**'
+      - 'tests/love_hd2d_style_gate/**'
       - 'tests/love_hd2d_scene_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
@@ -39,6 +40,7 @@ jobs:
           luac5.1 -p tests/hd2d_scene_contract.lua
           luac5.1 -p tests/hd2d_scene_loader_test.lua
           luac5.1 -p tests/love_hd2d_shader_gate/main.lua
+          luac5.1 -p tests/love_hd2d_style_gate/main.lua
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
 
       - name: Validate manifest JSON
@@ -103,6 +105,14 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
             2>&1 | tee hd2d-love-shader.log
 
+      - name: Require source-textured scene objects on real LÖVE
+        shell: bash
+        run: |
+          set -o pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_style_gate \
+            2>&1 | tee hd2d-love-style.log
+
       - name: Render true synthetic diorama on real LÖVE
         shell: bash
         run: |
@@ -123,6 +133,7 @@ jobs:
           name: chatgpt-hd2d-scene-visual-gate
           path: |
             hd2d-love-shader.log
+            hd2d-love-style.log
             hd2d-love-scene.log
             hd2d-scene-raw.png
             hd2d-scene-depth.png
