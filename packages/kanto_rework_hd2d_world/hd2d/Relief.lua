@@ -12,6 +12,7 @@ function Relief.new(MaterialClassifier)
     lastTopRuns = 0,
     lastFrontRuns = 0,
     lastSideFaces = 0,
+    lastDoorways = 0,
   }, Relief)
 end
 
@@ -37,6 +38,7 @@ end
 function Relief:resetMetrics()
   self.lastScenes, self.lastCells = 0, 0
   self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
+  self.lastDoorways = 0
 end
 
 local function sameMass(a, b)
@@ -117,6 +119,35 @@ local function drawSideFace(host, ctx, proj, map, material, wx, wy, height)
   love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
 end
 
+local function drawDoorway(host, ctx, proj, map, cx, cy, ox, oy, height)
+  -- The threshold cell itself stays gameplay-authoritative ground. This panel
+  -- is painted only onto the raised front face immediately behind that real
+  -- warp, so it cannot invent an entrance where traversal does not exist.
+  local centerX = (cx + 0.5) * CELL + (ox or 0)
+  local wallY = (cy + 1) * CELL + (oy or 0)
+  local halfW = CELL * 0.30
+  local doorH = math.max(2.5, height * 0.72)
+  local left, right = centerX - halfW, centerX + halfW
+  local r, g, b, a = host:paletteWallColor(ctx, map, 0.96, 0.30)
+  local ax, ay = proj:projectTerrain(left, wallY + 0.02, 0)
+  local bx, by = proj:projectTerrain(right, wallY + 0.02, 0)
+  local tax, tay = proj:projectTerrain(left, wallY + 0.02, doorH)
+  local tbx, tby = proj:projectTerrain(right, wallY + 0.02, doorH)
+  love.graphics.setColor(r, g, b, a)
+  love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+
+  -- One restrained lintel line separates the opening from the facade without
+  -- introducing extra asset detail or a map-specific architectural style.
+  local lr, lg, lb, la = host:paletteWallColor(ctx, map, 0.92, 0.88)
+  local lintel = math.max(0.45, proj.scale > 1 and 0.55 or 0.75)
+  local ltax, ltay = proj:projectTerrain(left, wallY + 0.03, doorH)
+  local ltbx, ltby = proj:projectTerrain(right, wallY + 0.03, doorH)
+  local lbax, lbay = proj:projectTerrain(left, wallY + 0.03, doorH - lintel)
+  local lbbx, lbby = proj:projectTerrain(right, wallY + 0.03, doorH - lintel)
+  love.graphics.setColor(lr, lg, lb, la)
+  love.graphics.polygon("fill", ltax, ltay, ltbx, ltby, lbbx, lbby, lbax, lbay)
+end
+
 -- Draw one terrain depth row. Keeping this independently callable allows the
 -- depth composer to interleave raised world masses with actor billboards using
 -- their common baseline-Y order instead of forcing all terrain behind actors.
@@ -156,6 +187,20 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       cx = runEnd + 1
     else
       cx = cx + 1
+    end
+  end
+
+  -- A real traversal threshold immediately south of a structure becomes a
+  -- facade opening. The geometry remains exactly the connected solid mass;
+  -- only the already-present front wall receives the entrance cue.
+  for dx = x0, x1 do
+    local material = materials[dx]
+    if material and material.family == "structure"
+       and classifier.frontExposed(map, dx, cy)
+       and classifier.isTraversalThreshold(map, dx, cy + 1) then
+      local height = classifier.reliefHeight(material, lift)
+      drawDoorway(host, ctx, proj, map, dx, cy, ox, oy, height)
+      self.lastDoorways = self.lastDoorways + 1
     end
   end
 
