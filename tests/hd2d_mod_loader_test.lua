@@ -37,6 +37,7 @@ local RELATIVE_FILES = {
   "hd2d/Projection.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/Relief.lua",
+  "hd2d/WaterSurface.lua",
   "hd2d/Occlusion.lua",
   "hd2d/Renderer.lua",
 }
@@ -105,6 +106,7 @@ assert(type(exports.renderer) == "table", "renderer export missing")
 assert(type(exports.projection) == "table", "projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
 assert(type(exports.relief) == "table", "relief export missing")
+assert(type(exports.water) == "table", "water export missing")
 assert(type(exports.occlusion) == "table", "occlusion export missing")
 
 Pipelines.install(data)
@@ -126,8 +128,8 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "clean nil fallback must not retire the pipeline")
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
--- projection, semantic relief, connected-neighbour capture and grass
--- foreground priority after the package passes through the real loader.
+-- projection, semantic relief, connected-neighbour capture, recessed water
+-- and grass foreground priority after the package passes through the loader.
 local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
@@ -208,6 +210,10 @@ assert(exports.relief.lastTopRuns > 0,
   "continuous semantic top-surface pass did not draw any runs")
 assert(exports.relief.lastTopRuns < exports.relief.lastCells,
   "contiguous raised cells were not merged into wider top-surface runs")
+assert(exports.water.lastCells >= 8,
+  "recessed water pass did not classify the synthetic water body")
+assert(exports.water.lastRuns >= 1,
+  "recessed water body was not emitted as a continuous source-texture run")
 assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute")
 assert(exports.occlusion.overlays >= 1, "tall-grass overlay was not composited")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
