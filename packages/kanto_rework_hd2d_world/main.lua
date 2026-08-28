@@ -46,6 +46,7 @@ local LivePolish = loadLocal("hd2d.LivePolish", "hd2d/LivePolish.lua")
 local VanillaMotifs = loadLocal("hd2d.VanillaMotifs", "hd2d/VanillaMotifs.lua")
 local DioramaPolish = loadLocal("hd2d.DioramaPolish", "hd2d/DioramaPolish.lua")
 local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
+local NaturalScale = loadLocal("hd2d.NaturalScale", "hd2d/NaturalScale.lua")
 local AtlasSource = loadLocal("hd2d.AtlasSource", "hd2d/AtlasSource.lua")
 local AtlasWorld = loadLocal("hd2d.AtlasWorld", "hd2d/AtlasWorld.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
@@ -70,6 +71,10 @@ renderer = LivePolish.apply(renderer)
 VanillaMotifs.install(MaterialClassifier)
 renderer = DioramaPolish.apply(renderer)
 renderer = NaturalForms.apply(renderer)
+-- TEST8 live capture proved the canonical forms were correct but oversized:
+-- preserve their vanilla pixels while reducing repeated tree-wall height and
+-- flattening boulder relief before atlas textures are injected.
+renderer = NaturalScale.apply(renderer)
 -- Gen1Recomp already keeps the exact generated 8x8 tileset atlas on each map
 -- renderer. Prefer that source over a captured flat-map framebuffer for all
 -- walkable terrain and natural scene objects. Capture remains a compatibility
@@ -112,6 +117,7 @@ mod.exports.livePolish = LivePolish
 mod.exports.vanillaMotifs = VanillaMotifs
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
+mod.exports.naturalScale = NaturalScale
 mod.exports.atlasSource = AtlasSource
 mod.exports.atlasWorld = AtlasWorld
 mod.exports.sceneContinuity = SceneContinuity
