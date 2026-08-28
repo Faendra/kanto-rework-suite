@@ -52,6 +52,12 @@ local function release(obj)
   if obj and obj.release then pcall(obj.release, obj) end
 end
 
+local function clamp(v, lo, hi)
+  if v < lo then return lo end
+  if v > hi then return hi end
+  return v
+end
+
 function WorldAtmosphere.new()
   return setmetatable({
     shader = nil,
@@ -62,6 +68,7 @@ function WorldAtmosphere.new()
     lastPasses = 0,
     lastBypassed = false,
     lastLevel = 0,
+    lastFocusY = nil,
   }, WorldAtmosphere)
 end
 
@@ -71,6 +78,7 @@ function WorldAtmosphere:invalidate()
   self.targetW, self.targetH = 0, 0
   self.lastPasses = 0
   self.lastBypassed = false
+  self.lastFocusY = nil
 end
 
 function WorldAtmosphere:shaderAvailable()
@@ -107,10 +115,11 @@ function WorldAtmosphere:ensureTarget(canvas)
   return self.target
 end
 
-function WorldAtmosphere:present(canvas, ctx, level)
+function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   self.lastLevel = tonumber(level) or 0
   self.lastPasses = 0
   self.lastBypassed = false
+  self.lastFocusY = nil
   if not canvas or self.lastLevel <= 0 then
     self.lastBypassed = true
     return canvas
@@ -119,16 +128,19 @@ function WorldAtmosphere:present(canvas, ctx, level)
   local shader = self:ensureShader()
   local target = shader and self:ensureTarget(canvas) or nil
   if not (shader and target) then
-    -- Headless/unsupported GPUs keep the geometry renderer untouched. This is
-    -- a presentation enhancement, never a requirement for the world pipeline.
     self.lastBypassed = true
     return canvas
   end
 
   local preset = PRESETS[math.max(1, math.min(3, self.lastLevel))] or PRESETS[1]
+  local focus = tonumber(requestedFocusY)
+  if not focus or focus ~= focus then focus = preset.focusY end
+  focus = clamp(focus, 0.18, 0.82)
+  self.lastFocusY = focus
+
   local w, h = self.targetW, self.targetH
   shader:send("texelSize", { 1 / w, 1 / h })
-  shader:send("focusY", preset.focusY)
+  shader:send("focusY", focus)
   shader:send("focusWidth", preset.focusWidth)
   shader:send("blurStrength", preset.blur)
   shader:send("hazeStrength", preset.haze)
