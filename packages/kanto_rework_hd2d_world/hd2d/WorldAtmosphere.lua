@@ -8,48 +8,105 @@ extern number focusWidth;
 extern number blurStrength;
 extern number hazeStrength;
 extern number vignetteStrength;
+extern number bloomStrength;
+extern number gradeStrength;
+
+float luminance(vec3 c)
+{
+    return dot(c, vec3(0.2126, 0.7152, 0.0722));
+}
+
+vec3 brightSample(Image tex, vec2 uv)
+{
+    vec3 c = Texel(tex, uv).rgb;
+    float gate = smoothstep(0.56, 0.88, luminance(c));
+    return c * gate;
+}
 
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
 {
     vec4 base = Texel(tex, uv);
 
+    // Tilt-shift / miniature focal plane. Gameplay near the player stays crisp;
+    // foreground and distant world planes soften progressively.
     float focusDistance = abs(uv.y - focusY);
-    float blurMask = smoothstep(focusWidth, focusWidth + 0.28, focusDistance)
+    float blurMask = smoothstep(focusWidth, focusWidth + 0.26, focusDistance)
                    * blurStrength;
 
-    vec2 spread = texelSize * (1.0 + blurMask * 2.4);
-    vec4 soft = base * 0.42;
-    soft += Texel(tex, uv + vec2(spread.x, 0.0)) * 0.145;
-    soft += Texel(tex, uv - vec2(spread.x, 0.0)) * 0.145;
-    soft += Texel(tex, uv + vec2(0.0, spread.y)) * 0.145;
-    soft += Texel(tex, uv - vec2(0.0, spread.y)) * 0.145;
+    vec2 spread = texelSize * (1.2 + blurMask * 3.8);
+    vec4 soft = base * 0.34;
+    soft += Texel(tex, uv + vec2(spread.x, 0.0)) * 0.115;
+    soft += Texel(tex, uv - vec2(spread.x, 0.0)) * 0.115;
+    soft += Texel(tex, uv + vec2(0.0, spread.y)) * 0.115;
+    soft += Texel(tex, uv - vec2(0.0, spread.y)) * 0.115;
+    soft += Texel(tex, uv + spread) * 0.050;
+    soft += Texel(tex, uv - spread) * 0.050;
+    soft += Texel(tex, uv + vec2(spread.x, -spread.y)) * 0.050;
+    soft += Texel(tex, uv + vec2(-spread.x, spread.y)) * 0.050;
     vec4 outColor = mix(base, soft, blurMask);
 
-    // Atmospheric separation is strongest behind the player and deliberately
-    // restrained around the focus plane. This keeps gameplay sprites crisp
-    // while DEPTH/CINEMA visibly separate distant world planes.
+    // Small, world-only bloom around bright pixel clusters. The radius stays
+    // narrow so source pixels remain legible instead of becoming a soft filter.
+    vec2 bloomStep = texelSize * 3.0;
+    vec3 bloom = brightSample(tex, uv + vec2(bloomStep.x, 0.0));
+    bloom += brightSample(tex, uv - vec2(bloomStep.x, 0.0));
+    bloom += brightSample(tex, uv + vec2(0.0, bloomStep.y));
+    bloom += brightSample(tex, uv - vec2(0.0, bloomStep.y));
+    bloom += brightSample(tex, uv + bloomStep);
+    bloom += brightSample(tex, uv - bloomStep);
+    bloom += brightSample(tex, uv + vec2(bloomStep.x, -bloomStep.y));
+    bloom += brightSample(tex, uv + vec2(-bloomStep.x, bloomStep.y));
+    bloom *= 0.125;
+    outColor.rgb += bloom * bloomStrength;
+
+    // Atmospheric separation behind the player. This acts on the world canvas
+    // only; menus and dialog boxes are composited by Gen1Recomp afterwards.
     float hazeEnd = max(0.001, focusY - focusWidth);
     float farMask = 1.0 - smoothstep(0.0, hazeEnd, uv.y);
     vec3 hazeTint = vec3(0.86, 0.91, 0.94);
     outColor.rgb = mix(outColor.rgb, hazeTint,
-                       farMask * hazeStrength * 0.30);
+                       farMask * hazeStrength * 0.34);
 
-    // World-only vignette; dialog boxes and menus are composited after this.
+    // Gentle cinematic grade: cooler shadows, warmer highlights and a weak
+    // upper-left sun wash. This gives the diorama directional light without
+    // recolouring the original Game Boy material identity.
+    float lum = luminance(outColor.rgb);
+    float hi = smoothstep(0.40, 0.90, lum);
+    vec3 grade = mix(vec3(0.97, 1.00, 1.04),
+                     vec3(1.05, 1.02, 0.96), hi);
+    outColor.rgb *= mix(vec3(1.0), grade, gradeStrength);
+    float sun = (1.0 - uv.x) * (1.0 - uv.y);
+    outColor.rgb += vec3(1.00, 0.93, 0.79)
+                    * sun * gradeStrength * 0.035;
+
+    // World-only vignette, deliberately light enough not to obscure border
+    // scenery or route transitions.
     vec2 centered = uv - vec2(0.5, 0.52);
     float vignette = smoothstep(0.28, 0.72, dot(centered, centered) * 1.45);
     outColor.rgb *= 1.0 - vignette * vignetteStrength;
 
-    return outColor * color;
+    return vec4(clamp(outColor.rgb, 0.0, 1.0), outColor.a) * color;
 }
 ]]
 
--- The three user-facing levels should be visibly distinct, not three nearly
--- identical switches. HD2D remains almost pixel-sharp; DEPTH adds a moderate
--- focal plane; CINEMA intentionally pushes the Octopath-like miniature lens.
+-- HD2D remains crisp and restrained; DEPTH adds the miniature lens; CINEMA
+-- pushes bloom/tilt-shift further for the strongest Octopath-like staging.
 local PRESETS = {
-  [1] = { focusY = 0.57, focusWidth = 0.30, blur = 0.045, haze = 0.040, vignette = 0.018 },
-  [2] = { focusY = 0.57, focusWidth = 0.23, blur = 0.280, haze = 0.110, vignette = 0.035 },
-  [3] = { focusY = 0.57, focusWidth = 0.19, blur = 0.480, haze = 0.160, vignette = 0.055 },
+  [1] = {
+    focusY = 0.57, focusWidth = 0.30,
+    blur = 0.060, haze = 0.035, vignette = 0.018,
+    bloom = 0.055, grade = 0.080,
+  },
+  [2] = {
+    focusY = 0.57, focusWidth = 0.22,
+    blur = 0.320, haze = 0.105, vignette = 0.034,
+    bloom = 0.150, grade = 0.170,
+  },
+  [3] = {
+    focusY = 0.57, focusWidth = 0.18,
+    blur = 0.520, haze = 0.155, vignette = 0.052,
+    bloom = 0.240, grade = 0.240,
+  },
 }
 
 local function release(obj)
@@ -75,6 +132,8 @@ function WorldAtmosphere.new()
     lastFocusY = nil,
     lastBlurStrength = 0,
     lastHazeStrength = 0,
+    lastBloomStrength = 0,
+    lastGradeStrength = 0,
   }, WorldAtmosphere)
 end
 
@@ -87,6 +146,8 @@ function WorldAtmosphere:invalidate()
   self.lastFocusY = nil
   self.lastBlurStrength = 0
   self.lastHazeStrength = 0
+  self.lastBloomStrength = 0
+  self.lastGradeStrength = 0
 end
 
 function WorldAtmosphere:shaderAvailable()
@@ -130,6 +191,8 @@ function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   self.lastFocusY = nil
   self.lastBlurStrength = 0
   self.lastHazeStrength = 0
+  self.lastBloomStrength = 0
+  self.lastGradeStrength = 0
   if not canvas or self.lastLevel <= 0 then
     self.lastBypassed = true
     return canvas
@@ -149,6 +212,8 @@ function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   self.lastFocusY = focus
   self.lastBlurStrength = preset.blur
   self.lastHazeStrength = preset.haze
+  self.lastBloomStrength = preset.bloom
+  self.lastGradeStrength = preset.grade
 
   local w, h = self.targetW, self.targetH
   shader:send("texelSize", { 1 / w, 1 / h })
@@ -157,6 +222,8 @@ function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   shader:send("blurStrength", preset.blur)
   shader:send("hazeStrength", preset.haze)
   shader:send("vignetteStrength", preset.vignette)
+  shader:send("bloomStrength", preset.bloom)
+  shader:send("gradeStrength", preset.grade)
 
   love.graphics.push("all")
   love.graphics.setCanvas(target)
