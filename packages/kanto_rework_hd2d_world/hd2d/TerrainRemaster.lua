@@ -37,10 +37,6 @@ local function explicitElevation(map, cx, cy)
   return nil
 end
 
--- Outdoor semantic categories remain chromatic, not geometric. The only
--- inferred Gen-I topography is now a verified one-way ledge relation: the
--- standing side is one logical level above its landing side. This directly
--- mirrors the vanilla ledge hop table instead of inventing lawn/path walls.
 local function elevationFor(map, cx, cy, level, classifier, material)
   if not map or not OUTDOOR[mapTileset(map)] then return 0, "neutral", "flat" end
   material = material or classifier.classify(map, cx, cy)
@@ -150,7 +146,7 @@ local function facePoints(proj, x, y, face)
     local cx, cy = proj:cell(x, y, z1)
     local dx, dy = proj:cell(x, y + 1, z1)
     return { ax, ay, bx, by, cx, cy, dx, dy }
-  else -- right
+  else
     local ax, ay = proj:cell(x + 1, y, z0)
     local bx, by = proj:cell(x + 1, y + 1, z0)
     local cx, cy = proj:cell(x + 1, y + 1, z1)
@@ -180,9 +176,6 @@ local function drawLedgeFace(renderer, proj, x, y, face)
       return true
     end
   end
-
-  -- Compatibility fallback only. Real atlas-direct LÖVE uses the exact ledge
-  -- pixels; this warm earth tone avoids ever reintroducing TEST8/9's grey wall.
   love.graphics.setColor(0.34, 0.28, 0.18, 1)
   love.graphics.polygon("fill", p)
   return false
@@ -205,7 +198,7 @@ function TerrainRemaster.apply(renderer)
     self.lastTexturedLedgeFaces = 0
     self._terrainElevation = {}
     self._terrainStyle = {}
-    self._terrainLedgeFaces = {}
+    self._terrainLedgeFaceList = {}
   end
 
   local baseInvalidate = renderer.invalidate
@@ -219,7 +212,7 @@ function TerrainRemaster.apply(renderer)
     local ground, objects, scenes = baseBuildScene(self, ctx, proj)
     self._terrainElevation = {}
     self._terrainStyle = {}
-    self._terrainLedgeFaces = {}
+    self._terrainLedgeFaceList = {}
 
     for _, cmd in ipairs(ground or {}) do
       local map = cmd.scene and cmd.scene.map
@@ -246,7 +239,9 @@ function TerrainRemaster.apply(renderer)
           if self.atlasSource and self.atlasSource.cellTexture then
             face.atlasTexture = self.atlasSource.cellTexture(self, map, cmd.cx, cmd.cy)
           end
-          self._terrainLedgeFaces[k] = face
+          self._terrainLedgeFaceList[#self._terrainLedgeFaceList + 1] = {
+            x = cmd.x, y = cmd.y, face = face,
+          }
         end
       end
     end
@@ -267,15 +262,24 @@ function TerrainRemaster.apply(renderer)
         love.graphics.setColor(r, g, b, a)
         love.graphics.polygon("fill", proj:cellPolygon(x, y, (z or 0) + 0.0015))
       end
-      local face = self._terrainLedgeFaces and self._terrainLedgeFaces[k]
-      if face then
-        self.lastLedgeFaces = self.lastLedgeFaces + 1
-        if drawLedgeFace(self, proj, x, y, face) then
-          self.lastTexturedLedgeFaces = self.lastTexturedLedgeFaces + 1
-        end
-      end
     end
     return ok
+  end
+
+  local baseDrawTerrainFaces = renderer.drawTerrainFaces
+  renderer.drawTerrainFaces = function(self, proj, ground, scenes)
+    local count = 0
+    if type(baseDrawTerrainFaces) == "function" then
+      count = tonumber(baseDrawTerrainFaces(self, proj, ground, scenes)) or 0
+    end
+    for _, row in ipairs(self._terrainLedgeFaceList or {}) do
+      self.lastLedgeFaces = self.lastLedgeFaces + 1
+      if drawLedgeFace(self, proj, row.x, row.y, row.face) then
+        self.lastTexturedLedgeFaces = self.lastTexturedLedgeFaces + 1
+      end
+      count = count + 1
+    end
+    return count
   end
 
   local baseDrawActor = renderer.drawActor
