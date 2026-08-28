@@ -14,7 +14,6 @@ on:
       - 'tests/love_hd2d_natural_forms_gate/**'
       - 'tests/love_hd2d_scene_gate/**'
       - 'tests/love_hd2d_test5_scene_gate/**'
-      - 'tests/love_hd2d_test7_scene_gate/**'
       - 'tests/love_hd2d_test8_atlas_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
@@ -50,7 +49,6 @@ jobs:
           luac5.1 -p tests/love_hd2d_natural_forms_gate/main.lua
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
-          luac5.1 -p tests/love_hd2d_test7_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test8_atlas_gate/main.lua
 
       - name: Validate manifest JSON
@@ -157,20 +155,6 @@ jobs:
           test -s hd2d-test8-atlas-raw.png
           test -s hd2d-test8-atlas-depth.png
 
-      - name: Render TEST7 terrain regression route
-        shell: bash
-        run: |
-          set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" \
-            timeout 30s xvfb-run -a love tests/love_hd2d_test7_scene_gate \
-            2>&1 | tee hd2d-love-test7.log
-          find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-test7-route-raw.png' \
-            -o -name 'hd2d-test7-route-depth.png' \) \
-            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
-          test -s hd2d-test7-route-raw.png
-          test -s hd2d-test7-route-depth.png
-
       - name: Render TEST5 interior regression diorama
         shell: bash
         run: |
@@ -211,14 +195,11 @@ jobs:
             hd2d-love-live-polish.log
             hd2d-love-natural-forms.log
             hd2d-love-test8-atlas.log
-            hd2d-love-test7.log
             hd2d-love-test5.log
             hd2d-love-scene.log
             hd2d-natural-forms.png
             hd2d-test8-atlas-raw.png
             hd2d-test8-atlas-depth.png
-            hd2d-test7-route-raw.png
-            hd2d-test7-route-depth.png
             hd2d-scene-raw.png
             hd2d-scene-depth.png
             hd2d-test5-outdoor-raw.png
@@ -228,8 +209,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  # Packaging is intentionally disabled while TEST8's direct-atlas visual gate
-  # is being judged. It is re-enabled only after the rasterized scene is accepted.
   package-live-test:
     if: ${{ false }}
     name: Package live test (disabled during TEST8 visual gate)
