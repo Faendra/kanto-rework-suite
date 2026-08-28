@@ -7,6 +7,13 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
+-- The upstream headless stub intentionally omits GPU primitives that no
+-- engine-logic test needs.  Renderer:available() correctly requires polygon
+-- support on a real LOVE runtime, so provide only the no-op capability probes
+-- necessary to let this loader/fallback test reach the no-overworld path.
+love.graphics.polygon = love.graphics.polygon or function() end
+love.graphics.ellipse = love.graphics.ellipse or function() end
+
 local Loader = require("src.mods.Loader")
 local Pipelines = require("src.render.Pipelines")
 
@@ -72,7 +79,8 @@ local function memfs(values)
       table.sort(out)
       return out
     end,
-    write = function()
+    write = function(path, data)
+      values[path] = data
       return true
     end,
   }
@@ -109,7 +117,7 @@ assert(found.def and found.def.label == "KRS 3DWORLD",
 Pipelines.setLevel("krs_3dworld", 1)
 local selected = Pipelines.worldPipeline()
 assert(selected == "krs_3dworld",
-  "enabled KRS pipeline was not eligible under the LOVE stub")
+  "enabled KRS pipeline was not eligible under the augmented LOVE stub")
 local out = Pipelines.drawWorld("krs_3dworld", {
   width = 320,
   height = 180,
