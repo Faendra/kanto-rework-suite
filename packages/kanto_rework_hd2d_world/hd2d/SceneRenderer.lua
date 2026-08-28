@@ -191,8 +191,6 @@ local function fallbackGroundColor(ctx, map)
   local r, g, b = tonumber(c[1]), tonumber(c[2]), tonumber(c[3])
   if not r or not g or not b then return fallback[1], fallback[2], fallback[3] end
   if r > 1 or g > 1 or b > 1 then r, g, b = r / 255, g / 255, b / 255 end
-  -- Pull extreme Game Boy whites toward a natural floor so missing source
-  -- samples never become glaring white diamonds.
   return mix(r, fallback[1], 0.42),
          mix(g, fallback[2], 0.42),
          mix(b, fallback[3], 0.42)
@@ -209,11 +207,6 @@ function SceneRenderer:captureTerrain(ctx)
 
   love.graphics.push("all")
   love.graphics.setCanvas(self.source)
-
-  -- Keep Gen1Recomp's border call in the execution path for compatibility,
-  -- but outdoor scenes immediately replace its pixels with a neutral capture
-  -- floor. The border tile is a flat-engine implementation detail, not world
-  -- geometry, and must never become an isometric wall.
   if map.renderer.drawBorderFill then
     map.renderer:drawBorderFill(self.sourceCamX, self.sourceCamY,
                                 self.sourceW, self.sourceH)
@@ -397,10 +390,6 @@ function SceneRenderer:drawStructure(proj, cmd)
   local roofColor = civic and COLORS.civicRoof or COLORS.roof
 
   drawStructureShadow(proj, x0, y0, x1, y1, proj.level)
-
-  -- Far roof plane first, then visible walls and near roof. The building is one
-  -- coherent mass command, so an actor can sort behind or in front of the whole
-  -- structure instead of being interleaved between collision rows.
   setColor(COLORS.roofFar)
   local n0x, n0y = proj:cell(x0 - 0.08, y0 - 0.05, wallH)
   local n1x, n1y = proj:cell(x1 + 0.08, y0 - 0.05, wallH)
@@ -420,8 +409,6 @@ function SceneRenderer:drawStructure(proj, cmd)
   local rr0x, rr0y = proj:cell(x0 - 0.08, ridgeY, ridgeH)
   drawPoly({ rr0x, rr0y, rr1x, rr1y, f1x, f1y, f0x, f0y })
 
-  -- East gable closes the roof volume and makes the silhouette read as a real
-  -- pitched building rather than a floating quadrilateral.
   local e0x, e0y = proj:cell(x1 + 0.085, y0, wallH)
   local e1x, e1y = proj:cell(x1 + 0.085, y1, wallH)
   local erx, ery = proj:cell(x1 + 0.085, ridgeY, ridgeH)
@@ -435,8 +422,6 @@ function SceneRenderer:drawStructure(proj, cmd)
   drawSouthPanel(proj, doorX - doorHalf, doorX + doorHalf,
                  y1 + 0.006, 0.01, doorH, COLORS.door)
 
-  -- Sparse façade details are procedural and geometry-based. They are not map
-  -- profiles: width determines whether there is room for one or two windows.
   local function windowAt(cx)
     if math.abs(cx - doorX) < 0.62 then return end
     drawSouthPanel(proj, cx - 0.22, cx + 0.22, y1 + 0.008,
@@ -470,10 +455,6 @@ function SceneRenderer:drawVegetation(proj, cmd)
   setColor(COLORS.shadow, 0.10)
   drawPoly(proj:quad(x + 0.18, y + 0.18, x + 0.82, y + 0.82, 0.005))
   drawTrunk(proj, cx, cy + 0.05, 0, 0.36 * scale)
-
-  -- Layered canopy planes are deliberately not one extruded collision cube.
-  -- Their changing footprint creates a tree crown silhouette while preserving
-  -- the crisp, low-resolution staging expected from a Pokémon world.
   setColor(COLORS.canopy, 1)
   drawPoly(proj:quad(x + 0.08, y + 0.08, x + 0.92, y + 0.92, 0.34 * scale))
   setColor(COLORS.canopyMid, 1)
@@ -692,6 +673,12 @@ function SceneRenderer:surfaceZForWorld(scenes, wx, wy)
   return m.kind == "water" and -0.12 or 0
 end
 
+-- Extension point for semantic terrain layers. Base renderer has no vertical
+-- terrain faces; TerrainRemaster overrides this to draw only verified ledges.
+function SceneRenderer:drawTerrainFaces(proj, ground, scenes)
+  return 0
+end
+
 function SceneRenderer:drawWorld(ctx)
   if self.level <= 0 then return nil end
   if not (ctx and ctx.state and ctx.state.map and ctx.cam
@@ -710,9 +697,6 @@ function SceneRenderer:drawWorld(ctx)
   love.graphics.setCanvas(self.output)
   self:drawBackdrop(ctx, proj)
 
-  -- Ground is one shared world plane. Every cell is a textured diamond on that
-  -- plane, not a separately extruded cube. Decorative Gen I pixel art remains
-  -- visible here while collision-only masses are replaced by nearby floor art.
   for _, cmd in ipairs(ground) do
     local fallback = cmd.material.kind == "water" and COLORS.water or COLORS.ground
     if self:drawTexturedQuad(proj, cmd.x, cmd.y, cmd.z, cmd.rect, fallback) then
@@ -724,6 +708,11 @@ function SceneRenderer:drawWorld(ctx)
     end
     self.lastGroundCells = self.lastGroundCells + 1
   end
+
+  -- True terrain faces are composed after every ground tile and before scene
+  -- objects. This prevents lower terrace tiles from overpainting a ledge face,
+  -- while actors/trees/buildings still occlude the terrain correctly.
+  self:drawTerrainFaces(proj, ground, scenes)
 
   for _, cmd in ipairs(objects) do
     if cmd.kind == "structure" then
