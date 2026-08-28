@@ -1,4 +1,4 @@
-name: Sol 3DWorld static checks
+name: Sol 3DWorld gates
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - experiment/sol-3dworld-hd2d
     paths:
       - 'packages/kanto_rework_3dworld_hd2d/**'
+      - 'tests/sol3d_mod_loader_test.lua'
       - '.github/workflows/sol3d-static.yml'
   workflow_dispatch:
 
@@ -14,9 +15,10 @@ permissions:
 
 jobs:
   syntax:
+    name: Lua syntax + manifest
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout KRS
         uses: actions/checkout@v4
 
       - name: Install Lua 5.1
@@ -34,3 +36,28 @@ jobs:
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_3dworld_hd2d/manifest.json >/dev/null
+
+  gen1recomp-loader:
+    name: Gen1Recomp v0.2.32 loader
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout KRS
+        uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+
+      - name: Checkout Gen1Recomp v0.2.32
+        run: |
+          git clone --depth 1 --branch v0.2.32 \
+            https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
+
+      - name: Load KRS through official mod loader
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/gen1recomp
+          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_3dworld_hd2d" \
+            luajit "$GITHUB_WORKSPACE/tests/sol3d_mod_loader_test.lua"
