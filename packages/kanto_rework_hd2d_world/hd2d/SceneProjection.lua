@@ -10,9 +10,9 @@ local function clamp(v, lo, hi)
 end
 
 local PRESETS = {
-  [1] = { fov = 40, pitch = 35, yaw = -14, distance = 20.5, centerY = 0.60, sprite = 0.92 },
-  [2] = { fov = 38, pitch = 32, yaw = -16, distance = 19.0, centerY = 0.61, sprite = 0.96 },
-  [3] = { fov = 36, pitch = 29, yaw = -18, distance = 17.5, centerY = 0.62, sprite = 1.00 },
+  [1] = { fov = 40, pitch = 32, yaw = -14, distance = 20.5, centerY = 0.60, sprite = 0.92 },
+  [2] = { fov = 38, pitch = 28, yaw = -16, distance = 19.0, centerY = 0.61, sprite = 0.96 },
+  [3] = { fov = 36, pitch = 25, yaw = -18, distance = 17.5, centerY = 0.62, sprite = 1.00 },
 }
 
 local function cameraCell(ctx)
@@ -49,8 +49,6 @@ function SceneProjection.new(ctx, level)
   local sinYaw = math.sin(yaw)
   local distance = preset.distance
 
-  -- Horizontal forward vector is (sinYaw, -cosYaw). Put the camera behind the
-  -- player along the opposite vector, then raise it according to pitch.
   local cameraX = targetX - sinYaw * distance
   local cameraY = targetY + cosYaw * distance
   local cameraZ = distance * math.tan(pitch)
