@@ -9,10 +9,14 @@ local function clamp(v, lo, hi)
   return v
 end
 
+-- The visual target needs a camera that reads as a miniature 3D world, not a
+-- tactical map. Ground diamonds therefore stay relatively shallow while world
+-- elevation is amplified, and each level moves the camera closer rather than
+-- simply exaggerating a flat perspective warp.
 local PRESETS = {
-  [1] = { zoom = 0.92, ratio = 0.43, elevation = 1.38, centerY = 0.53, sprite = 0.80 },
-  [2] = { zoom = 1.00, ratio = 0.45, elevation = 1.52, centerY = 0.55, sprite = 0.84 },
-  [3] = { zoom = 1.08, ratio = 0.47, elevation = 1.66, centerY = 0.57, sprite = 0.88 },
+  [1] = { zoom = 1.02, ratio = 0.38, elevation = 1.65, centerY = 0.56, sprite = 0.84 },
+  [2] = { zoom = 1.12, ratio = 0.40, elevation = 1.85, centerY = 0.58, sprite = 0.88 },
+  [3] = { zoom = 1.22, ratio = 0.42, elevation = 2.05, centerY = 0.60, sprite = 0.92 },
 }
 
 local function cameraCell(ctx)
@@ -36,10 +40,10 @@ function SceneProjection.new(ctx, level)
   level = math.max(1, math.min(3, math.floor(tonumber(level) or 1)))
   local preset = PRESETS[level]
 
-  -- A true 2:1-ish isometric camera. Unlike the previous strip projection,
-  -- both world axes participate in X and Y screen placement, so a rectangular
-  -- Gen I map becomes a spatial diorama rather than a compressed trapezoid.
-  local base = clamp(math.min(width / 18.0, height / 11.0), 28, 76)
+  -- True isometric world basis: X and Y rotate toward opposite horizontal
+  -- directions while both recede vertically. A rectangular Gen I map therefore
+  -- becomes a spatial diorama instead of a trapezoid with fake depth bands.
+  local base = clamp(math.min(width / 16.0, height / 9.5), 30, 76)
   local tileW = base * preset.zoom
   local tileH = tileW * preset.ratio
   local cameraX, cameraY = cameraCell(ctx)
@@ -89,7 +93,6 @@ function SceneProjection:depth(x, y, bias)
 end
 
 function SceneProjection:visibleRadius()
-  -- Enough world cells to cover the output corners after the 45-degree turn.
   local rx = math.ceil(self.width / math.max(1, self.tileW)) + 4
   local ry = math.ceil(self.height / math.max(1, self.tileH)) * 0.5 + 4
   return math.max(8, math.ceil(math.max(rx, ry)))
