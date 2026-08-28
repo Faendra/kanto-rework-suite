@@ -119,6 +119,19 @@ local function drawOutdoorApron(renderer, ctx, proj)
   return drawn
 end
 
+local function boundaryHeight(cmd, originalHeight)
+  local base = tonumber(originalHeight) or 0.14
+  if base < 0.17 then return math.max(base, 0.15) end
+  -- Edge/boundary masses are boulders or short retaining walls after vanilla
+  -- tree blocks have already been promoted to vegetation. A small deterministic
+  -- height variation breaks the continuous flat strip without inventing map
+  -- profiles or changing collision.
+  local x = math.floor(tonumber(cmd and cmd.x) or 0)
+  local y = math.floor(tonumber(cmd and cmd.y) or 0)
+  local step = ((x * 5 + y * 3) % 3) * 0.025
+  return 0.235 + step
+end
+
 function LivePolish.apply(renderer)
   if not renderer or renderer.__livePolishApplied then return renderer end
   renderer.__livePolishApplied = true
@@ -131,6 +144,7 @@ function LivePolish.apply(renderer)
     self.lastApronCells = 0
     self.lastPerspectiveActors = 0
     self.lastPerspectiveVegetation = 0
+    self.lastPerspectiveBoundaries = 0
   end
 
   local baseDrawBackdrop = renderer.drawBackdrop
@@ -166,6 +180,19 @@ function LivePolish.apply(renderer)
       return baseDrawVegetation(self, proxyProjection(proj, localTile, nil), cmd)
     end
     return baseDrawVegetation(self, proj, cmd)
+  end
+
+  local baseDrawLowPrism = renderer.drawLowPrism
+  renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
+    local cx, cy = (cmd.x or 0) + 0.5, (cmd.y or 0) + 0.5
+    local localTile = proj.screenScale and proj:screenScale(cx, cy, 0)
+                      or proj.tileW
+    local h = boundaryHeight(cmd, height)
+    if (tonumber(height) or 0) >= 0.17 then
+      self.lastPerspectiveBoundaries = (self.lastPerspectiveBoundaries or 0) + 1
+    end
+    return baseDrawLowPrism(self, proxyProjection(proj, localTile, nil),
+                            cmd, h, topColor)
   end
 
   local baseDrawStructure = renderer.drawStructure
