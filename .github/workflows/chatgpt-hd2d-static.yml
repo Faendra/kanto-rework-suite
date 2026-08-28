@@ -9,6 +9,7 @@ on:
       - 'tests/hd2d_projection_contract.lua'
       - 'tests/hd2d_mod_loader_test.lua'
       - 'tests/love_hd2d_shader_gate/**'
+      - 'tests/love_hd2d_visual_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -38,6 +39,7 @@ jobs:
           luac5.1 -p tests/hd2d_projection_contract.lua
           luac5.1 -p tests/hd2d_mod_loader_test.lua
           luac5.1 -p tests/love_hd2d_shader_gate/main.lua
+          luac5.1 -p tests/love_hd2d_visual_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
@@ -81,7 +83,7 @@ jobs:
           retention-days: 7
 
   love-shader:
-    name: Real LÖVE world-atmosphere shader
+    name: Real LÖVE shader + synthetic visual
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -101,11 +103,28 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
             2>&1 | tee hd2d-love-shader.log
 
-      - name: Upload LÖVE shader diagnostic
+      - name: Render synthetic HD2D scene on real LÖVE
+        shell: bash
+        run: |
+          set -euo pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_visual_gate \
+            2>&1 | tee hd2d-love-visual.log
+          find "$HOME/.local/share/love" -type f \
+            \( -name 'hd2d-visual-raw.png' -o -name 'hd2d-visual-depth.png' \) \
+            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          test -s hd2d-visual-raw.png
+          test -s hd2d-visual-depth.png
+
+      - name: Upload LÖVE diagnostics and visual gate
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-love-shader-diagnostic
-          path: hd2d-love-shader.log
-          if-no-files-found: error
+          name: chatgpt-hd2d-love-visual-gate
+          path: |
+            hd2d-love-shader.log
+            hd2d-love-visual.log
+            hd2d-visual-raw.png
+            hd2d-visual-depth.png
+          if-no-files-found: warn
           retention-days: 7
