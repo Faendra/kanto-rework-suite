@@ -43,6 +43,7 @@ local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialCl
 local SceneRenderer = loadLocal("hd2d.SceneRenderer", "hd2d/SceneRenderer.lua")
 local SceneStyle = loadLocal("hd2d.SceneStyle", "hd2d/SceneStyle.lua")
 local LivePolish = loadLocal("hd2d.LivePolish", "hd2d/LivePolish.lua")
+local DioramaPolish = loadLocal("hd2d.DioramaPolish", "hd2d/DioramaPolish.lua")
 local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
 
 -- Keep the previous modules loadable/exported during the transition so saved
@@ -55,8 +56,9 @@ local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
 local LegacyRenderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
-local renderer = LivePolish.apply(
-  SceneStyle.apply(SceneRenderer.new(SceneProjection, MaterialClassifier)))
+local renderer = DioramaPolish.apply(
+  LivePolish.apply(
+    SceneStyle.apply(SceneRenderer.new(SceneProjection, MaterialClassifier))))
 local atmosphere = WorldAtmosphere.new()
 
 local legacyRenderer = LegacyRenderer.new(LegacyProjection, MaterialClassifier)
@@ -88,6 +90,7 @@ mod.exports.projection = SceneProjection
 mod.exports.materialClassifier = MaterialClassifier
 mod.exports.sceneStyle = SceneStyle
 mod.exports.livePolish = LivePolish
+mod.exports.dioramaPolish = DioramaPolish
 mod.exports.atmosphere = atmosphere
 mod.exports.legacy = {
   renderer = legacyRenderer,
