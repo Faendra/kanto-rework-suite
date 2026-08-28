@@ -39,6 +39,7 @@ function Renderer.new(Projection, MaterialClassifier)
     outputH = 0,
     stripQuad = nil,
     cellQuad = nil,
+    lastFxWaterAnchors = 0,
   }, Renderer)
 end
 
@@ -67,6 +68,7 @@ function Renderer:invalidate()
   self.stripQuad, self.cellQuad = nil, nil
   self.sourceW, self.sourceH = 0, 0
   self.outputW, self.outputH = 0, 0
+  self.lastFxWaterAnchors = 0
 end
 
 function Renderer:ensureCanvases(ctx)
@@ -305,8 +307,6 @@ function Renderer:drawWaterLight(ctx, proj)
   if not map then return end
   local p = ctx.state.player
   if not p then return end
-  -- Restrained moving highlight around the player's local water neighbourhood.
-  -- It adds material separation without replacing the engine's animated water.
   local phase = (math.sin(self.elapsed * 1.5) + 1) * 0.5
   local radius = 5
   local cx0, cy0 = p.cellX or 0, p.cellY or 0
@@ -330,6 +330,20 @@ function Renderer:drawWaterLight(ctx, proj)
   love.graphics.setColor(1, 1, 1, 1)
 end
 
+function Renderer:surfaceZForWorld(map, wx, wy)
+  if not map or not self.MaterialClassifier then return 0 end
+  local cx = math.floor((tonumber(wx) or 0) / CELL)
+  -- Foot/baseline anchors are commonly placed exactly on a cell's south
+  -- boundary. Bias one epsilon north so they resolve to the cell they stand on.
+  local cy = math.floor(((tonumber(wy) or 0) - 0.001) / CELL)
+  local material = self.MaterialClassifier.classify(map, cx, cy)
+  if material.kind == "water" and type(self.waterSurfaceZ) == "function" then
+    local ok, value = pcall(self.waterSurfaceZ, self)
+    if ok and finite(value) then return value end
+  end
+  return 0
+end
+
 function Renderer:drawWorld(ctx)
   if not self:available() then return nil end
   if type(ctx) ~= "table" or not ctx.state or not ctx.state.map
@@ -348,9 +362,13 @@ function Renderer:drawWorld(ctx)
   self:drawSolidRelief(ctx, proj)
   self:drawWaterLight(ctx, proj)
   self:drawActors(ctx, proj)
+  self.lastFxWaterAnchors = 0
   if type(ctx.drawFx) == "function" then
+    local map = ctx.state.map
     ctx.drawFx(function(wx, wy)
-      local sx, sy = proj:projectWorld(wx, wy, 0)
+      local z = self:surfaceZForWorld(map, wx, wy)
+      if z < 0 then self.lastFxWaterAnchors = self.lastFxWaterAnchors + 1 end
+      local sx, sy = proj:projectWorld(wx, wy, z)
       return sx, sy
     end, proj.scale)
   end
