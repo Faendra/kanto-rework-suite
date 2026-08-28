@@ -143,30 +143,54 @@ local function luminance(r, g, b)
   return (r + g + b) / 3
 end
 
+local function cropSourceImageData(renderer, cmd)
+  local source = renderer and renderer.source
+  local rect = source and cmd and sourceRect(renderer, cmd.x, cmd.y) or nil
+  if not (source and rect and source.newImageData
+          and love and love.image and love.image.newImageData) then
+    return nil, nil
+  end
+
+  local ok, full = pcall(source.newImageData, source)
+  if not ok or not full then return nil, nil end
+  local fw, fh = full:getDimensions()
+  local sx, sy = math.floor(rect[1]), math.floor(rect[2])
+  if sx < 0 or sy < 0 or sx + CELL > fw or sy + CELL > fh then
+    safeRelease(full)
+    return nil, nil
+  end
+
+  local cropOk, data = pcall(love.image.newImageData, CELL, CELL)
+  if not cropOk or not data then
+    safeRelease(full)
+    return nil, nil
+  end
+  for y = 0, CELL - 1 do
+    for x = 0, CELL - 1 do
+      data:setPixel(x, y, full:getPixel(sx + x, sy + y))
+    end
+  end
+  safeRelease(full)
+  return data, string.format("%s:%d:%d", tostring(source), sx, sy)
+end
+
 -- Build a one-time alpha mask from the exact 16x16 runtime atlas cell.
 -- We intentionally do NOT clear every edge-connected pixel: the canonical Red
 -- tree touches the cell border with dark foliage. Only bright background pixels
 -- connected to the outer edge are removed, preserving disconnected highlights
 -- and all dark silhouette pixels even when they meet the border.
-local function silhouetteTexture(renderer)
-  local source = renderer and renderer.source
-  if not source then return nil, 0 end
-
+local function silhouetteTexture(renderer, cmd)
   renderer.naturalSilhouetteCache = renderer.naturalSilhouetteCache or {}
-  local cached = renderer.naturalSilhouetteCache[source]
-  if cached then return cached.image, cached.cleared or 0 end
 
-  if not (source.newImageData and love and love.graphics
-          and love.graphics.newImage) then return nil, 0 end
-
-  local ok, data = pcall(source.newImageData, source)
-  if not ok or not data then return nil, 0 end
-  local w, h = data:getDimensions()
-  if w ~= CELL or h ~= CELL then
+  local data, key = cropSourceImageData(renderer, cmd)
+  if not data or not key then return nil, 0 end
+  local cached = renderer.naturalSilhouetteCache[key]
+  if cached then
     safeRelease(data)
-    return nil, 0
+    return cached.image, cached.cleared or 0
   end
 
+  local w, h = data:getDimensions()
   local visited = {}
   local qx, qy = {}, {}
   local head, tail = 1, 0
@@ -210,12 +234,12 @@ local function silhouetteTexture(renderer)
   if not imageOk or not image then return nil, 0 end
   if image.setFilter then image:setFilter("nearest", "nearest") end
 
-  renderer.naturalSilhouetteCache[source] = { image = image, cleared = cleared }
+  renderer.naturalSilhouetteCache[key] = { image = image, cleared = cleared }
   return image, cleared
 end
 
 local function drawPixelBillboard(renderer, proj, cmd, screenHeightRatio, tint)
-  local image, cleared = silhouetteTexture(renderer)
+  local image, cleared = silhouetteTexture(renderer, cmd)
   if not image then return false end
 
   local cx, cy = cmd.x + 0.5, cmd.y + 0.62
@@ -373,7 +397,7 @@ function NaturalForms.apply(renderer)
       return true
     end
 
-    -- Compatibility only for test/engine surfaces that cannot expose ImageData.
+    -- Compatibility only for surfaces that cannot expose ImageData.
     local v = variation(cmd)
     ratio = ratio * (0.98 + v * 0.03)
     local width = ({ 0.94, 1.02, 1.08 })[proj.level] or 1.02
