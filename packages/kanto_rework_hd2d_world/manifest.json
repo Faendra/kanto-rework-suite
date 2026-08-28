@@ -1,0 +1,16 @@
+{
+  "id": "kanto_rework_hd2d_world",
+  "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
+  "version": "0.1.0-cphd2d01",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "UI",
+  "games": ["gen1"],
+  "game_version": ">=0.2.32 <0.3.0",
+  "priority": 165,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "permissions": [],
+  "description": "Experimental KRS HD-2D overworld renderer: projected world strips, semantic relief, upright pixel-art billboards and safe 2D fallback without replacing gameplay logic."
+}
