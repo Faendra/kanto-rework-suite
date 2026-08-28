@@ -152,14 +152,14 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    name: Package validated TEST3-P build
+    name: Package validated TEST4 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
 
-      - name: Verify TEST3-P manifest
+      - name: Verify TEST4 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -169,29 +169,29 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.1-cphd2d06-test3p'
+          assert data['version'] == '0.2.2-cphd2d07-test4'
           PY
 
-      - name: Build installable TEST3-P archive
+      - name: Build installable TEST4 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d06-test3p.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d07-test4.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d06-test3p.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d06-test3p.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d06-test3p.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d07-test4.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d07-test4.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d07-test4.zip
 
-      - name: Upload TEST3-P build
+      - name: Upload TEST4 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test3p-build
+          name: chatgpt-hd2d-test4-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d06-test3p.zip
-            dist/kanto_rework_hd2d_world-cphd2d06-test3p.sha256
+            dist/kanto_rework_hd2d_world-cphd2d07-test4.zip
+            dist/kanto_rework_hd2d_world-cphd2d07-test4.sha256
           if-no-files-found: error
           retention-days: 14
