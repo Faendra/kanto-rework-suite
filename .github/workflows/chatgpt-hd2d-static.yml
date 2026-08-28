@@ -1,0 +1,79 @@
+name: ChatGPT HD2D World gates
+
+on:
+  push:
+    branches:
+      - experiment/chatgpt-sol-hd2d-world
+    paths:
+      - 'packages/kanto_rework_hd2d_world/**'
+      - 'tests/hd2d_projection_contract.lua'
+      - 'tests/hd2d_mod_loader_test.lua'
+      - '.github/workflows/chatgpt-hd2d-static.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  syntax-contracts:
+    name: Lua 5.1 syntax + pure contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout KRS
+        uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Compile-check experiment Lua sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          find packages/kanto_rework_hd2d_world -type f -name '*.lua' -print0 \
+            | sort -z \
+            | xargs -0 -n1 luac5.1 -p
+          luac5.1 -p tests/hd2d_projection_contract.lua
+          luac5.1 -p tests/hd2d_mod_loader_test.lua
+
+      - name: Validate manifest JSON
+        run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
+
+      - name: Run projection/material contracts
+        run: lua5.1 tests/hd2d_projection_contract.lua
+
+  gen1recomp-loader:
+    name: Gen1Recomp v0.2.32 loader + synthetic world
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout KRS
+        uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+
+      - name: Checkout Gen1Recomp v0.2.32
+        run: |
+          git clone --depth 1 --branch v0.2.32 \
+            https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
+
+      - name: Load package through official mod loader
+        shell: bash
+        run: |
+          set -o pipefail
+          cd /tmp/gen1recomp
+          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" \
+            luajit "$GITHUB_WORKSPACE/tests/hd2d_mod_loader_test.lua" \
+            2>&1 | tee "$GITHUB_WORKSPACE/hd2d-loader.log"
+
+      - name: Upload loader diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-loader-diagnostic
+          path: hd2d-loader.log
+          if-no-files-found: error
+          retention-days: 7
