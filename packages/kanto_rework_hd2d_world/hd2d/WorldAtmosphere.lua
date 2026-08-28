@@ -16,11 +16,23 @@ float luminance(vec3 c)
     return dot(c, vec3(0.2126, 0.7152, 0.0722));
 }
 
+// Bloom only a bright feature that is locally brighter than its immediate
+// neighborhood. A broad pale road/roof therefore stays textured instead of
+// glowing just because every pixel is high-luminance.
 vec3 brightSample(Image tex, vec2 uv)
 {
     vec3 c = Texel(tex, uv).rgb;
-    float gate = smoothstep(0.56, 0.88, luminance(c));
-    return c * gate;
+    float lum = luminance(c);
+    float neighbors = 0.0;
+    neighbors += luminance(Texel(tex, uv + vec2(texelSize.x, 0.0)).rgb);
+    neighbors += luminance(Texel(tex, uv - vec2(texelSize.x, 0.0)).rgb);
+    neighbors += luminance(Texel(tex, uv + vec2(0.0, texelSize.y)).rgb);
+    neighbors += luminance(Texel(tex, uv - vec2(0.0, texelSize.y)).rgb);
+    neighbors *= 0.25;
+    float localPeak = max(0.0, lum - neighbors);
+    float peakGate = smoothstep(0.020, 0.115, localPeak);
+    float lightGate = smoothstep(0.58, 0.90, lum);
+    return c * peakGate * lightGate;
 }
 
 vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
@@ -45,8 +57,8 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
     soft += Texel(tex, uv + vec2(-spread.x, spread.y)) * 0.050;
     vec4 outColor = mix(base, soft, blurMask);
 
-    // Small, world-only bloom around bright pixel clusters. The radius stays
-    // narrow so source pixels remain legible instead of becoming a soft filter.
+    // Narrow, contrast-gated world bloom. This creates pinprick highlights and
+    // window sparkle without bleaching pale Gen I ground and roof materials.
     vec2 bloomStep = texelSize * 3.0;
     vec3 bloom = brightSample(tex, uv + vec2(bloomStep.x, 0.0));
     bloom += brightSample(tex, uv - vec2(bloomStep.x, 0.0));
@@ -65,7 +77,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
     float farMask = 1.0 - smoothstep(0.0, hazeEnd, uv.y);
     vec3 hazeTint = vec3(0.86, 0.91, 0.94);
     outColor.rgb = mix(outColor.rgb, hazeTint,
-                       farMask * hazeStrength * 0.34);
+                       farMask * hazeStrength * 0.30);
 
     // Gentle cinematic grade: cooler shadows, warmer highlights and a weak
     // upper-left sun wash. This gives the diorama directional light without
@@ -77,7 +89,18 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
     outColor.rgb *= mix(vec3(1.0), grade, gradeStrength);
     float sun = (1.0 - uv.x) * (1.0 - uv.y);
     outColor.rgb += vec3(1.00, 0.93, 0.79)
-                    * sun * gradeStrength * 0.035;
+                    * sun * gradeStrength * 0.026;
+
+    // Recover detail in near-white Game Boy palette regions. A soft shoulder
+    // compresses only the very top of the range and nudges it toward warm
+    // ivory; midtones and saturated grass/water are left intact.
+    lum = luminance(outColor.rgb);
+    float chalk = smoothstep(0.76, 1.00, lum);
+    float shoulder = chalk * (0.050 + 0.055 * gradeStrength);
+    outColor.rgb *= 1.0 - shoulder;
+    outColor.rgb = mix(outColor.rgb,
+                       outColor.rgb * vec3(1.00, 0.995, 0.965),
+                       chalk * 0.16);
 
     // World-only vignette, deliberately light enough not to obscure border
     // scenery or route transitions.
@@ -94,18 +117,18 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
 local PRESETS = {
   [1] = {
     focusY = 0.57, focusWidth = 0.30,
-    blur = 0.060, haze = 0.035, vignette = 0.018,
-    bloom = 0.055, grade = 0.080,
+    blur = 0.050, haze = 0.030, vignette = 0.018,
+    bloom = 0.040, grade = 0.080,
   },
   [2] = {
     focusY = 0.57, focusWidth = 0.22,
-    blur = 0.320, haze = 0.105, vignette = 0.034,
-    bloom = 0.150, grade = 0.170,
+    blur = 0.300, haze = 0.095, vignette = 0.034,
+    bloom = 0.105, grade = 0.170,
   },
   [3] = {
     focusY = 0.57, focusWidth = 0.18,
-    blur = 0.520, haze = 0.155, vignette = 0.052,
-    bloom = 0.240, grade = 0.240,
+    blur = 0.490, haze = 0.145, vignette = 0.052,
+    bloom = 0.165, grade = 0.240,
   },
 }
 
