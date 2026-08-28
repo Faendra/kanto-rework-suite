@@ -9,10 +9,15 @@ local function clamp(v, lo, hi)
   return v
 end
 
+-- TEST4 proved the perspective path, but the live capture still read too much
+-- like a board seen from above. TEST5 lowers DEPTH/CINEMA while keeping HD2D
+-- conservative. Lower pitch compresses the ground plane and gives vertical
+-- scene geometry substantially more screen authority without touching world
+-- coordinates or gameplay.
 local PRESETS = {
-  [1] = { fov = 40, pitch = 32, yaw = -14, distance = 20.5, centerY = 0.60, sprite = 0.92 },
-  [2] = { fov = 38, pitch = 28, yaw = -16, distance = 19.0, centerY = 0.61, sprite = 0.96 },
-  [3] = { fov = 36, pitch = 25, yaw = -18, distance = 17.5, centerY = 0.62, sprite = 1.00 },
+  [1] = { fov = 40,   pitch = 30.0, yaw = -14, distance = 20.5, centerY = 0.60, sprite = 0.92 },
+  [2] = { fov = 37.5, pitch = 24.5, yaw = -16, distance = 19.0, centerY = 0.615, sprite = 0.96 },
+  [3] = { fov = 35.5, pitch = 21.5, yaw = -18, distance = 17.5, centerY = 0.625, sprite = 1.00 },
 }
 
 local function cameraCell(ctx)
