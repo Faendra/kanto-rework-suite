@@ -53,7 +53,7 @@ local renderer = Renderer.new(Projection, MaterialClassifier)
 local relief = Relief.new(MaterialClassifier)
 local water = WaterSurface.new(MaterialClassifier)
 local occlusion = Occlusion.new()
-local depthComposer = DepthComposer.new(relief, occlusion)
+local depthComposer = DepthComposer.new(relief, occlusion, WaterSurface)
 
 -- Raised terrain and upright actors must share one painter order. Suppress the
 -- renderer's old terrain-first pass; DepthComposer emits both row geometry and
