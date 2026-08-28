@@ -131,8 +131,8 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
 -- projection, semantic relief, connected-neighbour capture, recessed water,
--- actor/terrain depth composition, warp-derived facade cues, contact planes,
--- airborne hops and grass foreground priority.
+-- actor/terrain depth composition, warp-derived architecture, data-derived
+-- vegetation silhouettes, contact planes, airborne hops and grass priority.
 local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
@@ -143,6 +143,7 @@ local rendererStub = {
 
 local map = {
   id = "PALLET_TOWN",
+  def = { tileset = "OVERWORLD" },
   widthCells = 8,
   heightCells = 8,
   renderer = rendererStub,
@@ -158,10 +159,15 @@ local map = {
     if y == 7 then return false end
     return not (y == 3 and x >= 2 and x <= 4)
   end,
+  cellTile = function(_, x, y)
+    if y == 3 and x >= 2 and x <= 4 then return 0x30 + x end
+    return 0x01
+  end,
 }
 
 local neighborMap = {
   id = "ROUTE_1",
+  def = { tileset = "OVERWORLD" },
   widthCells = 8,
   heightCells = 8,
   renderer = rendererStub,
@@ -171,7 +177,14 @@ local neighborMap = {
   isWarpTileCell = function() return false end,
   warpAtCell = function() return nil end,
   isWalkableCell = function(_, x, y)
-    return not (x == 1 and y == 3)
+    local vegetation = y <= 1 and x <= 4
+    local obstacle = x == 1 and y == 3
+    return not (vegetation or obstacle)
+  end,
+  cellTile = function(_, x, y)
+    if y <= 1 and x <= 4 then return 0x52 end
+    if x == 1 and y == 3 then return 0x33 end
+    return 0x01
   end,
 }
 
@@ -239,6 +252,10 @@ assert(exports.relief.lastTopRuns < exports.relief.lastCells,
   "contiguous raised cells were not merged into wider top-surface runs")
 assert(exports.relief.lastDoorways >= 1,
   "real warp threshold did not produce a structure facade opening")
+assert(exports.relief.lastEaves >= 1,
+  "structure facade did not receive a continuous architectural eave")
+assert(exports.relief.lastCanopies >= 1,
+  "natural repeated mass did not receive a layered vegetation canopy")
 assert(exports.water.lastCells >= 8,
   "recessed water pass did not classify the synthetic water body")
 assert(exports.water.lastRuns >= 1,
