@@ -39,6 +39,22 @@ local function ensureMesh(renderer)
   return mesh
 end
 
+local function heightForScreen(proj, cx, cy, targetPixels, fallback)
+  if not (proj and type(proj.cell) == "function") then return fallback end
+  local _, baseY = proj:cell(cx, cy, 0.008)
+  if type(baseY) ~= "number" then return fallback end
+
+  local lo, hi = 0.04, 2.40
+  for _ = 1, 10 do
+    local mid = (lo + hi) * 0.5
+    local _, topY = proj:cell(cx, cy, mid)
+    if type(topY) ~= "number" then return fallback end
+    local pixels = math.abs(baseY - topY)
+    if pixels < targetPixels then lo = mid else hi = mid end
+  end
+  return (lo + hi) * 0.5
+end
+
 local function cardVertices(proj, x, y, height, width)
   local cx, cy = x + 0.5, y + 0.60
   local bx, by = proj:cell(cx, cy, 0.008)
@@ -63,14 +79,21 @@ local function cardVertices(proj, x, y, height, width)
   return out, bx, by, scale
 end
 
-local function drawTexturedCard(renderer, proj, cmd, height, width, tint)
+local function drawTexturedCard(renderer, proj, cmd,
+                                screenHeightRatio, width, tint, fallbackHeight)
   local rect = sourceRect(renderer, cmd.x, cmd.y)
   local mesh = rect and ensureMesh(renderer) or nil
   if not (mesh and mesh.setVertices and mesh.setTexture and renderer.source) then
     return false
   end
 
-  local points, bx, by, scale = cardVertices(proj, cmd.x, cmd.y, height, width)
+  local cx, cy = cmd.x + 0.5, cmd.y + 0.60
+  local scale = proj.screenScale and proj:screenScale(cx, cy, 0)
+                or proj.tileW or 1
+  local targetPixels = math.max(2, scale * screenHeightRatio)
+  local height = heightForScreen(proj, cx, cy, targetPixels,
+                                 fallbackHeight or 0.6)
+  local points, bx, by = cardVertices(proj, cmd.x, cmd.y, height, width)
   local sx, sy, sw, sh = rect[1], rect[2], rect[3], rect[4]
   local vertices = {}
   for i, p in ipairs(points) do
@@ -130,12 +153,10 @@ function NaturalForms.apply(renderer)
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
     local v = variation(cmd)
-    local level = tonumber(proj.level) or 2
-    local baseH = ({ 0.88, 1.08, 1.24 })[level] or 1.08
-    local height = baseH * (0.94 + v * 0.10)
+    local ratio = 1.16 + v * 0.12
     local width = 0.88 + v * 0.07
-    if drawTexturedCard(self, proj, cmd, height, width,
-                        { 0.98, 1.00, 0.96 }) then
+    if drawTexturedCard(self, proj, cmd, ratio, width,
+                        { 0.98, 1.00, 0.96 }, 1.08) then
       self.lastNaturalVegetationCards =
         (self.lastNaturalVegetationCards or 0) + 1
       return true
@@ -151,12 +172,10 @@ function NaturalForms.apply(renderer)
     -- upright forms so a long Route 1 edge cannot become one grey retaining wall.
     if (tonumber(height) or 0) >= 0.17 then
       local v = variation(cmd)
-      local level = tonumber(proj.level) or 2
-      local baseH = ({ 0.38, 0.50, 0.60 })[level] or 0.50
-      local cardH = baseH * (0.90 + v * 0.16)
+      local ratio = 0.78 + v * 0.09
       local cardW = 0.74 + v * 0.09
-      if drawTexturedCard(self, proj, cmd, cardH, cardW,
-                          { 0.95, 0.97, 0.94 }) then
+      if drawTexturedCard(self, proj, cmd, ratio, cardW,
+                          { 0.95, 0.97, 0.94 }, 0.72) then
         self.lastNaturalBoundaryCards =
           (self.lastNaturalBoundaryCards or 0) + 1
         return true
