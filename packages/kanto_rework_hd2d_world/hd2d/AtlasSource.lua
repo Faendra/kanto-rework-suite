@@ -72,6 +72,38 @@ function AtlasSource.cellIds(map, cx, cy)
   return idsFor(map, cx, cy)
 end
 
+-- Exact single 8x8 runtime tile. This is intentionally separate from
+-- cellTexture(): Gen I collision/ledge semantics are keyed by the bottom-left
+-- tile of a 16x16 cell, so stretching the whole cell onto a vertical ledge face
+-- mixes ground pixels into the cliff. The tile cache preserves the authored
+-- pixel motif and whatever palette Gen1Recomp has already applied to its atlas.
+function AtlasSource.tileTexture(host, map, tileId)
+  local r = rendererFor(map)
+  tileId = tonumber(tileId)
+  if not r or tileId == nil or not AtlasSource.available(map) then return nil end
+  local q = r.quads[tileId]
+  if not q then return nil end
+
+  host.atlasTileCache = host.atlasTileCache or {}
+  local key = tostring(r.image) .. ":tile:" .. tostring(tileId)
+  local cached = host.atlasTileCache[key]
+  if cached then return cached end
+
+  local canvas = love.graphics.newCanvas(TILE, TILE)
+  if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(r.image, q, 0, 0)
+  love.graphics.setCanvas()
+  love.graphics.pop()
+
+  host.atlasTileCache[key] = canvas
+  host.lastAtlasTileTextures = (host.lastAtlasTileTextures or 0) + 1
+  return canvas
+end
+
 function AtlasSource.cellTexture(host, map, cx, cy)
   local r = rendererFor(map)
   if not r or not AtlasSource.available(map) then return nil end
@@ -99,9 +131,6 @@ function AtlasSource.cellTexture(host, map, cx, cy)
   return canvas, ids
 end
 
--- Compose a contiguous map-cell region directly from Gen1Recomp's runtime
--- 8x8 tileset atlas. This is used by architecture so roof/facade texturing no
--- longer needs pixels sampled from the already-flattened 2D world framebuffer.
 function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   local r = rendererFor(map)
   if not r or not AtlasSource.available(map) then return nil end
@@ -142,11 +171,12 @@ end
 
 function AtlasSource.invalidate(host)
   if not host then return end
-  for _, cache in ipairs({ host.atlasCellCache, host.atlasRegionCache }) do
+  for _, cache in ipairs({ host.atlasTileCache, host.atlasCellCache, host.atlasRegionCache }) do
     if cache then
       for _, canvas in pairs(cache) do safeRelease(canvas) end
     end
   end
+  host.atlasTileCache = nil
   host.atlasCellCache = nil
   host.atlasRegionCache = nil
 end
