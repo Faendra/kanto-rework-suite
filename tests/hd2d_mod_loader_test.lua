@@ -36,6 +36,7 @@ local RELATIVE_FILES = {
   "main.lua",
   "hd2d/Projection.lua",
   "hd2d/MaterialClassifier.lua",
+  "hd2d/Occlusion.lua",
   "hd2d/Renderer.lua",
 }
 
@@ -102,6 +103,7 @@ local exports = assert(loader.exports.kanto_rework_hd2d_world,
 assert(type(exports.renderer) == "table", "renderer export missing")
 assert(type(exports.projection) == "table", "projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
+assert(type(exports.occlusion) == "table", "occlusion export missing")
 
 Pipelines.install(data)
 local found
@@ -122,13 +124,14 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "clean nil fallback must not retire the pipeline")
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
--- projection, semantic relief and connected-neighbour capture after the package
--- has passed through Gen1Recomp's real loader. Rendering remains headless.
-local drawCounts = { current = 0, neighbor = 0, fx = 0 }
+-- projection, semantic relief, connected-neighbour capture and grass
+-- foreground priority after the package passes through the real loader.
+local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
   draw = function() drawCounts.current = drawCounts.current + 1 end,
   drawMapOnly = function() drawCounts.neighbor = drawCounts.neighbor + 1 end,
+  drawCellBottom = function() drawCounts.grass = drawCounts.grass + 1 end,
 }
 
 local map = {
@@ -145,10 +148,18 @@ local map = {
   end,
 }
 local neighborMap = { renderer = rendererStub }
+local grassActor = {
+  id = "grass_probe",
+  cellX = 3, cellY = 5,
+  px = 3 * 16, py = 5 * 16,
+  -- Renderer skips this actor as a sprite; Occlusion still consumes its
+  -- authoritative cell/pixel position, isolating the grass contract.
+  pose = function() return nil end,
+}
 local state = {
   map = map,
   neighbors = { { map = neighborMap, ox = 128, oy = 0 } },
-  entities = {}, ghosts = {},
+  entities = { grassActor }, ghosts = {},
   player = { cellX = 4, cellY = 4 },
 }
 
@@ -174,6 +185,8 @@ local rendered = Pipelines.drawWorld("krs_hd2d_world", {
 assert(rendered ~= nil, "synthetic HD2D world did not produce a canvas")
 assert(drawCounts.current >= 2, "current map renderer was not captured")
 assert(drawCounts.neighbor >= 1, "connected-neighbour renderer was not captured")
+assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute")
+assert(exports.occlusion.overlays >= 1, "tall-grass overlay was not composited")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
 
 Pipelines.reset()
