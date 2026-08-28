@@ -171,7 +171,7 @@ local function drawLedgeFace(renderer, proj, x, y, face)
       renderer.mesh:setTexture(texture)
     end)
     if ok then
-      love.graphics.setColor(0.82, 0.82, 0.78, 1)
+      love.graphics.setColor(0.88, 0.88, 0.84, 1)
       love.graphics.draw(renderer.mesh)
       return true
     end
@@ -179,6 +179,29 @@ local function drawLedgeFace(renderer, proj, x, y, face)
   love.graphics.setColor(0.34, 0.28, 0.18, 1)
   love.graphics.polygon("fill", p)
   return false
+end
+
+local function ledgeTexture(renderer, map, cx, cy, face)
+  local source = renderer.atlasSource
+  if not source then return nil end
+  local tileId
+  if type(map.cellTile) == "function" then
+    local ok, value = pcall(map.cellTile, map, cx, cy)
+    if ok then tileId = value end
+  end
+  face.tileId = tileId
+
+  -- Down/left ledges carry visible edge pixels in their collision tile. The
+  -- vanilla right-facing ids $0D/$1D are visually blank, so for those rare
+  -- cases retain the 16x16 authored cell rather than stretching white pixels.
+  if source.tileTexture and tileId ~= nil and tileId ~= 0x0D and tileId ~= 0x1D then
+    local tex = source.tileTexture(renderer, map, tileId)
+    if tex then return tex end
+  end
+  if source.cellTexture then
+    return source.cellTexture(renderer, map, cx, cy)
+  end
+  return nil
 end
 
 function TerrainRemaster.apply(renderer)
@@ -196,6 +219,7 @@ function TerrainRemaster.apply(renderer)
     self.lastLedgeLevelCells = 0
     self.lastLedgeFaces = 0
     self.lastTexturedLedgeFaces = 0
+    self.lastAtlasTileTextures = 0
     self._terrainElevation = {}
     self._terrainStyle = {}
     self._terrainLedgeFaceList = {}
@@ -236,9 +260,7 @@ function TerrainRemaster.apply(renderer)
       if map and cmd.cx ~= nil and cmd.cy ~= nil then
         local face = LedgeTopology.faceAt(map, cmd.cx, cmd.cy)
         if face then
-          if self.atlasSource and self.atlasSource.cellTexture then
-            face.atlasTexture = self.atlasSource.cellTexture(self, map, cmd.cx, cmd.cy)
-          end
+          face.atlasTexture = ledgeTexture(self, map, cmd.cx, cmd.cy, face)
           self._terrainLedgeFaceList[#self._terrainLedgeFaceList + 1] = {
             x = cmd.x, y = cmd.y, face = face,
           }
