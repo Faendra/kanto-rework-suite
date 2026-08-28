@@ -37,6 +37,19 @@ local function paintTile(id, base, accent, dark)
   end
 end
 
+local function paintIndexedTile(id, rows, palette)
+  local ox, oy = tileXY(id)
+  for y = 1, #rows do
+    local row = rows[y]
+    for x = 1, #row do
+      local index = tonumber(row:sub(x, x)) or 0
+      local c = palette[index + 1]
+      love.graphics.setColor(c[1], c[2], c[3], 1)
+      love.graphics.rectangle("fill", ox + x - 1, oy + y - 1, 1, 1)
+    end
+  end
+end
+
 function love.load()
   love.filesystem.setIdentity("krs-hd2d-test11-ledge-gate")
   local root = os.getenv("KRS_ROOT")
@@ -75,7 +88,7 @@ function love.load()
 
     local LAWN, PATH, LEDGE = 0x2C, 0x39, 0x37
     local W, H = 12, 12
-    local LEDGE_X0, LEDGE_X1 = 2, 9
+    local LEDGE_X0, LEDGE_X1 = 0, W - 1
     local LEDGE_Y1, LEDGE_Y2 = 4, 7
 
     local atlas = love.graphics.newCanvas(128, 48)
@@ -83,7 +96,21 @@ function love.load()
     love.graphics.clear(0.10, 0.12, 0.09, 1)
     paintTile(LAWN, {0.43,0.68,0.25}, {0.64,0.82,0.34}, {0.27,0.48,0.17})
     paintTile(PATH, {0.69,0.63,0.45}, {0.84,0.78,0.58}, {0.48,0.40,0.27})
-    paintTile(LEDGE, {0.47,0.35,0.20}, {0.73,0.59,0.34}, {0.24,0.16,0.10})
+    paintIndexedTile(LEDGE, {
+      "02121210",
+      "30311013",
+      "33100133",
+      "33100213",
+      "31202011",
+      "12020011",
+      "11002100",
+      "00022220",
+    }, {
+      {0.20,0.14,0.09},
+      {0.39,0.29,0.17},
+      {0.63,0.49,0.28},
+      {0.83,0.75,0.54},
+    })
     love.graphics.setCanvas()
     atlas:setFilter("nearest", "nearest")
 
@@ -108,14 +135,12 @@ function love.load()
 
     local function tileForCell(x, y)
       if isLedgeCell(x, y) then return LEDGE end
-      -- The row immediately above each ledge is a canonical standing tile.
-      -- Using PATH for the middle terrace proves both $2C/$39 standing rules.
       if y >= LEDGE_Y1 + 1 and y <= LEDGE_Y2 - 1 then return PATH end
       return LAWN
     end
 
     local map = {
-      id = "SYNTHETIC_TEST11_STACKED_LEDGES",
+      id = "SYNTHETIC_TEST11_ROUTE1_TERRACES",
       def = { tileset = "OVERWORLD" },
       widthCells = W, heightCells = H, renderer = mapRenderer,
     }
@@ -131,7 +156,6 @@ function love.load()
     end
     function map:blockAt() return 0x01 end
 
-    -- Exact topology invariant: two down-ledges yield three terraces.
     assert(LedgeTopology.logicalLevel(map, 5, 2) == 2,
            "upper terrace should be logical level 2")
     assert(LedgeTopology.logicalLevel(map, 5, 5) == 1,
@@ -199,10 +223,12 @@ function love.load()
     assert((renderer.lastAtlasMeshFallbacks or 0) == 0, "TEST11 atlas mesh fallback used")
     assert((renderer.lastTerrainSkirts or 0) == 0, "TEST11 semantic lawn/path skirts returned")
     assert((renderer.lastLedgeLevelCells or 0) > 0, "TEST11 ledge elevations inactive")
-    assert((renderer.lastLedgeFaces or 0) == 16,
-           "TEST11 expected exactly 16 ledge faces, got " .. tostring(renderer.lastLedgeFaces))
-    assert((renderer.lastTexturedLedgeFaces or 0) == 16,
+    assert((renderer.lastLedgeFaces or 0) == 24,
+           "TEST11 expected exactly 24 ledge faces, got " .. tostring(renderer.lastLedgeFaces))
+    assert((renderer.lastTexturedLedgeFaces or 0) == 24,
            "TEST11 ledge faces are not fully atlas-textured")
+    assert((renderer.lastAtlasTileTextures or 0) >= 1,
+           "TEST11 did not source ledge faces from exact 8x8 collision tiles")
     assert(renderer.lastActors == 3, "TEST11 terrace actors missing")
 
     local scenes = renderer:scenes(state)
