@@ -30,6 +30,7 @@ local RELATIVE_FILES = {
   "main.lua",
   "hd2d/SceneProjection.lua",
   "hd2d/SceneRenderer.lua",
+  "hd2d/SceneStyle.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/WorldAtmosphere.lua",
   -- Transitional compatibility exports still loaded by main.lua.
@@ -104,6 +105,7 @@ local exports = assert(loader.exports.kanto_rework_hd2d_world,
 assert(type(exports.renderer) == "table", "scene renderer export missing")
 assert(type(exports.projection) == "table", "scene projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
+assert(type(exports.sceneStyle) == "table", "scene style export missing")
 assert(type(exports.atmosphere) == "table", "atmosphere export missing")
 
 Pipelines.install(data)
@@ -136,7 +138,7 @@ local blocked = {}
 for y = 2, 3 do
   for x = 2, 4 do blocked[y * 32 + x] = "structure" end
 end
-for y = 0, 3 do
+for y = 1, 3 do
   for x = 7, 8 do blocked[y * 32 + x] = "vegetation" end
 end
 
@@ -183,9 +185,9 @@ function neighborMap:isWaterCell() return false end
 function neighborMap:isGrassCell(x, y) return y == 3 and x >= 2 and x <= 4 end
 function neighborMap:isWarpTileCell() return false end
 function neighborMap:warpAtCell() return nil end
-function neighborMap:isWalkableCell(x, y) return not (y <= 1 and x <= 4) end
+function neighborMap:isWalkableCell(x, y) return not (y >= 1 and y <= 2 and x <= 4) end
 function neighborMap:cellTile(x, y)
-  if y <= 1 and x <= 4 then return 0x52 end
+  if y >= 1 and y <= 2 and x <= 4 then return 0x52 end
   return 0x01
 end
 
@@ -245,7 +247,7 @@ assert(exports.renderer.lastGroundCells >= 40,
 assert(exports.renderer.lastStructures >= 1,
   "warp-derived building was not emitted as one scene volume")
 assert(exports.renderer.lastVegetation >= 1,
-  "vegetation did not become scene objects")
+  "interior repeated mass did not become upright vegetation")
 assert(exports.renderer.lastActors == 1,
   "upright actor billboard was not depth composed")
 assert(exports.renderer.lastWaterCells >= 1,
