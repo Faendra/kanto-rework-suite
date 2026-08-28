@@ -1,0 +1,16 @@
+{
+  "id": "kanto_rework_3dworld_hd2d",
+  "name": "Kanto Rework — 3DWorld HD2D",
+  "version": "0.0.1-cp3d00",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "UI",
+  "games": ["gen1"],
+  "game_version": ">=0.2.32 <0.3.0",
+  "priority": 160,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "permissions": [],
+  "description": "Experimental KRS overworld render pipeline: spatial terrain, pixel-art billboards and vanilla gameplay fallback."
+}
