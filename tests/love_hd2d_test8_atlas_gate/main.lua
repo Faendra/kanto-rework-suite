@@ -37,6 +37,25 @@ local function paintTile(id, base, accent, dark)
   end
 end
 
+-- Paint four atlas tiles that compose into a 16x16 tree with a bright outer
+-- background and a dark central crown. TEST8 can therefore prove that the
+-- runtime mask removes edge-connected background instead of simply drawing a
+-- rectangular 16x16 card.
+local function paintTreeTile(id, qx, qy)
+  local x, y = tileXY(id)
+  love.graphics.setColor(0.74, 0.82, 0.60, 1)
+  love.graphics.rectangle("fill", x, y, TILE, TILE)
+
+  local ix = qx == 0 and 2 or 0
+  local iy = qy == 0 and 2 or 0
+  love.graphics.setColor(0.08, 0.29, 0.10, 1)
+  love.graphics.rectangle("fill", x + ix, y + iy, 6, 6)
+  love.graphics.setColor(0.30, 0.61, 0.20, 1)
+  love.graphics.rectangle("fill", x + ix + 1, y + iy + 1, 4, 2)
+  love.graphics.setColor(0.14, 0.17, 0.08, 1)
+  love.graphics.rectangle("fill", x + ix + 2, y + iy + 4, 3, 2)
+end
+
 function love.load()
   love.filesystem.setIdentity("krs-hd2d-test8-atlas-gate")
   local root = os.getenv("KRS_ROOT")
@@ -84,10 +103,10 @@ function love.load()
     paintTile(PATH, {0.70, 0.66, 0.50}, {0.84, 0.80, 0.62}, {0.52, 0.47, 0.34})
     paintTile(HOUSE, {0.73, 0.78, 0.70}, {0.32, 0.45, 0.44}, {0.55, 0.36, 0.17})
 
-    paintTile(TREE[1], {0.08,0.28,0.10}, {0.24,0.57,0.19}, {0.16,0.20,0.09})
-    paintTile(TREE[2], {0.11,0.35,0.12}, {0.42,0.70,0.24}, {0.17,0.22,0.09})
-    paintTile(TREE[3], {0.13,0.38,0.13}, {0.48,0.74,0.27}, {0.20,0.14,0.08})
-    paintTile(TREE[4], {0.09,0.30,0.10}, {0.34,0.65,0.21}, {0.23,0.15,0.08})
+    paintTreeTile(TREE[1], 0, 0)
+    paintTreeTile(TREE[2], 1, 0)
+    paintTreeTile(TREE[3], 0, 1)
+    paintTreeTile(TREE[4], 1, 1)
 
     paintTile(BOULDER[1], {0.48,0.51,0.49}, {0.80,0.82,0.77}, {0.29,0.31,0.31})
     paintTile(BOULDER[2], {0.54,0.56,0.53}, {0.86,0.87,0.81}, {0.31,0.33,0.33})
@@ -220,6 +239,12 @@ function love.load()
            "TEST8 created no direct architecture atlas region")
     assert((renderer.lastNaturalVegetationCards or 0) >= 8,
            "TEST8 trees did not become upright pixel silhouettes")
+    assert((renderer.lastNaturalSilhouetteBillboards or 0) >= 8,
+           "TEST8 trees did not use aspect-preserving pixel billboards")
+    assert((renderer.lastNaturalSilhouettePixelsCleared or 0) > 0,
+           "TEST8 tree mask removed no edge-connected background pixels")
+    assert((renderer.lastNaturalCardFallbacks or 0) == 0,
+           "TEST8 fell back to legacy octagonal natural-form geometry")
     assert((renderer.lastNaturalBoundaryCards or 0) == 1,
            "TEST8 should render exactly one canonical boulder")
     assert((renderer.lastRaisedLawnCells or 0) >= 35,
