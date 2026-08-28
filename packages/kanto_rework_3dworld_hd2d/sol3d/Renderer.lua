@@ -66,10 +66,6 @@ local function surfaceKind(profile, overview, x, y)
   return cellKind(cellChar(overview, x, y))
 end
 
-local function surfaceHeight(profile, overview, x, y)
-  return heightFor(surfaceKind(profile, overview, x, y))
-end
-
 local function detailDigit(overview, x, y, sx, sy)
   local rows = overview.tileDetailRows
   if not rows then return nil end
@@ -90,21 +86,22 @@ local function drawPoly(points)
   love.graphics.polygon("fill", points)
 end
 
-local function drawDetailedTop(proj, overview, x, y, z, kind)
+local function drawDetailedTop(proj, overview, localX, localY,
+                               worldX, worldY, z, kind)
   if not overview.tileDetailRows then
     love.graphics.setColor(topColor(kind, 1.5))
-    drawPoly(proj:cellPolygon(x, y, z))
+    drawPoly(proj:cellPolygon(worldX, worldY, z))
     return
   end
 
-  -- 4x4 shade texels per 16px walk cell.  Geometry remains one continuous
+  -- 4x4 shade texels per 16px walk cell. Geometry remains one continuous
   -- plane; only the material sampling is pixelated, so the result reads as
   -- pixel art laid onto 3D rather than sixteen tiny cubes.
   for sy = 0, 3 do
     for sx = 0, 3 do
-      local shade = detailDigit(overview, x, y, sx, sy) or 1.5
+      local shade = detailDigit(overview, localX, localY, sx, sy) or 1.5
       love.graphics.setColor(topColor(kind, shade))
-      local x0, y0 = x + sx / 4, y + sy / 4
+      local x0, y0 = worldX + sx / 4, worldY + sy / 4
       drawPoly(proj:quad(x0, y0, x0 + 0.25, y0 + 0.25, z))
     end
   end
@@ -126,6 +123,27 @@ local function drawSide(proj, x, y, zTop, zBottom, edge, kind)
   end
   setColor(kind == "water" and BASE.waterSide or BASE.side)
   drawPoly({ a1, b1, a2, b2, c2, d2, c1, d1 })
+end
+
+local function sceneForWorldCell(scenes, x, y)
+  for _, scene in ipairs(scenes) do
+    local lx, ly = x - scene.offsetX, y - scene.offsetY
+    if lx >= 0 and ly >= 0
+        and lx < scene.overview.width and ly < scene.overview.height then
+      return scene, lx, ly
+    end
+  end
+  return nil
+end
+
+local function worldKindAt(scenes, x, y)
+  local scene, lx, ly = sceneForWorldCell(scenes, x, y)
+  if not scene then return "blocked" end
+  return surfaceKind(scene.profile, scene.overview, lx, ly)
+end
+
+local function worldHeightAt(scenes, x, y)
+  return heightFor(worldKindAt(scenes, x, y))
 end
 
 local function actorPose(actor)
@@ -150,21 +168,20 @@ local function actorDepth(pose)
   return (pose.px + 8) / 16 + (pose.actor.py + 12) / 16 + 0.04
 end
 
-local function actorSurfaceZ(profile, overview, pose)
+local function actorSurfaceZ(scenes, pose)
   local cx = math.floor((pose.px + 8) / 16)
   local cy = math.floor((pose.actor.py + 12) / 16)
-  local kind = surfaceKind(profile, overview, cx, cy)
-  return kind == "water" and heightFor("water") or 0
+  return worldKindAt(scenes, cx, cy) == "water" and heightFor("water") or 0
 end
 
-local function drawActor(proj, profile, overview, pose)
+local function drawActor(proj, scenes, pose)
   local actor, sprite = pose.actor, pose.sprite
   local groundPx, groundPy = pose.px + 8, actor.py + 12
   local lift = 0
   if pose.hopping and actor.py and pose.py then
     lift = math.max(0, actor.py - pose.py) / 16
   end
-  local z = actorSurfaceZ(profile, overview, pose) + lift
+  local z = actorSurfaceZ(scenes, pose) + lift
   local sx, sy = proj:worldPixel(groundPx, groundPy, z)
   local geometry = sprite:getPoseGeometry(pose.facing, pose.phase, pose.flip)
   local image = sprite:resolveImage()
@@ -230,14 +247,15 @@ local function drawSouthPanel(proj, x0, x1, y, z0, z1, color)
   drawPoly(southWallQuad(proj, x0, x1, y + 0.002, z0, z1))
 end
 
-local function drawStructure(proj, s, level)
+local function drawStructure(proj, s, level, offsetX, offsetY)
+  offsetX, offsetY = offsetX or 0, offsetY or 0
   local scale = ({ 0.92, 1.00, 1.08 })[level] or 1
   local wallZ = (s.kind == "lab" and 0.72 or 0.62) * scale
   local ridgeZ = wallZ + (s.kind == "lab" and 0.43 or 0.50) * scale
   local wall = s.kind == "lab" and BASE.labWall or BASE.houseWall
   local roof = s.kind == "lab" and BASE.labRoof or BASE.houseRoof
-  local x0, x1 = s.x, s.x + s.w
-  local y0, y1 = s.y, s.y + s.h
+  local x0, x1 = s.x + offsetX, s.x + s.w + offsetX
+  local y0, y1 = s.y + offsetY, s.y + s.h + offsetY
   local ridgeY = (y0 + y1) * 0.5
 
   setColor(wall, 0.86)
@@ -258,10 +276,11 @@ local function drawStructure(proj, s, level)
   setColor(roof, 0.90)
   drawPoly({ d1, d2, c1, c2, f1, f2, e1, e2 })
 
-  -- Doors are derived from the map's real warp coordinates.  They are visual
+  -- Doors are derived from the map's real warp coordinates. They are visual
   -- decoration only; the engine still owns the warp itself.
   for _, door in ipairs(s.doors or {}) do
-    drawSouthPanel(proj, door.x + 0.12, door.x + 0.88, y1,
+    drawSouthPanel(proj, door.x + offsetX + 0.12,
+                   door.x + offsetX + 0.88, y1,
                    0.02, wallZ * 0.72, BASE.door)
   end
 
@@ -273,13 +292,45 @@ local function drawStructure(proj, s, level)
     local center = x0 + s.w * i / (windowCount + 1)
     local blockedByDoor = false
     for _, door in ipairs(s.doors or {}) do
-      if math.abs(center - (door.x + 0.5)) < 0.75 then blockedByDoor = true end
+      if math.abs(center - (door.x + offsetX + 0.5)) < 0.75 then
+        blockedByDoor = true
+      end
     end
     if not blockedByDoor then
       drawSouthPanel(proj, center - 0.28, center + 0.28, y1,
                      windowZ0, windowZ1, BASE.window)
     end
   end
+end
+
+local function buildScenes(snapshot)
+  local active = {
+    mapId = snapshot.mapId,
+    offsetX = 0,
+    offsetY = 0,
+    overview = snapshot.overview,
+    mapDef = snapshot.mapDef,
+    tilesetDef = snapshot.tilesetDef,
+    active = true,
+  }
+  active.profile = SceneProfiles.build(active)
+
+  local scenes = { active }
+  for _, neighbor in ipairs(snapshot.neighbors or {}) do
+    local scene = {
+      mapId = neighbor.mapId,
+      offsetX = neighbor.offsetX or 0,
+      offsetY = neighbor.offsetY or 0,
+      overview = neighbor.overview,
+      mapDef = neighbor.mapDef,
+      tilesetDef = neighbor.tilesetDef,
+      preview = true,
+      active = false,
+    }
+    scene.profile = SceneProfiles.build(scene)
+    scenes[#scenes + 1] = scene
+  end
+  return scenes, active
 end
 
 function Renderer.new(adapter)
@@ -336,8 +387,8 @@ function Renderer:drawWorld(ctx)
     return nil
   end
 
+  local scenes, activeScene = buildScenes(snapshot)
   local state = ctx.state
-  local profile = SceneProfiles.build(snapshot)
   local playerPose = actorPose(state.player)
   local targetX = snapshot.player.x + 0.5
   local targetY = snapshot.player.y + 0.5
@@ -360,31 +411,45 @@ function Renderer:drawWorld(ctx)
   love.graphics.clear(0.055, 0.075, 0.082, 1)
 
   local radius = ({ 14, 17, 20 })[self.level] or 14
-  local minX = math.max(0, math.floor(targetX) - radius)
-  local maxX = math.min(overview.width - 1, math.floor(targetX) + radius)
-  local minY = math.max(0, math.floor(targetY) - radius)
-  local maxY = math.min(overview.height - 1, math.floor(targetY) + radius)
+  local worldMinX = math.floor(targetX) - radius
+  local worldMaxX = math.floor(targetX) + radius
+  local worldMinY = math.floor(targetY) - radius
+  local worldMaxY = math.floor(targetY) + radius
 
   local drawables = {}
-  for y = minY, maxY do
-    for x = minX, maxX do
-      drawables[#drawables + 1] = {
-        type = "cell", x = x, y = y, depth = x + y,
-      }
-      if profile.vegetationCells[SceneProfiles.cellKey(x, y)] then
-        drawables[#drawables + 1] = {
-          type = "vegetation", x = x, y = y, depth = x + y + 0.92,
-        }
+  for _, scene in ipairs(scenes) do
+    local minX = math.max(0, worldMinX - scene.offsetX)
+    local maxX = math.min(scene.overview.width - 1, worldMaxX - scene.offsetX)
+    local minY = math.max(0, worldMinY - scene.offsetY)
+    local maxY = math.min(scene.overview.height - 1, worldMaxY - scene.offsetY)
+
+    if minX <= maxX and minY <= maxY then
+      for ly = minY, maxY do
+        for lx = minX, maxX do
+          local x, y = lx + scene.offsetX, ly + scene.offsetY
+          drawables[#drawables + 1] = {
+            type = "cell", scene = scene,
+            localX = lx, localY = ly,
+            x = x, y = y, depth = x + y,
+          }
+          if scene.profile.vegetationCells[SceneProfiles.cellKey(lx, ly)] then
+            drawables[#drawables + 1] = {
+              type = "vegetation", scene = scene,
+              x = x, y = y, depth = x + y + 0.92,
+            }
+          end
+        end
       end
     end
-  end
 
-  for _, structure in ipairs(profile.structures) do
-    local frontDepth = structure.x + structure.w - 1
-                     + structure.y + structure.h - 1
-    drawables[#drawables + 1] = {
-      type = "structure", structure = structure, depth = frontDepth + 0.02,
-    }
+    for _, structure in ipairs(scene.profile.structures) do
+      local frontDepth = structure.x + scene.offsetX + structure.w - 1
+                       + structure.y + scene.offsetY + structure.h - 1
+      drawables[#drawables + 1] = {
+        type = "structure", scene = scene,
+        structure = structure, depth = frontDepth + 0.02,
+      }
+    end
   end
 
   if playerPose then
@@ -406,27 +471,31 @@ function Renderer:drawWorld(ctx)
     return (TYPE_RANK[a.type] or 9) < (TYPE_RANK[b.type] or 9)
   end)
 
-  local cellsDrawn, actorsDrawn = 0, 0
+  local cellsDrawn, neighborCellsDrawn, actorsDrawn = 0, 0, 0
   local vegetationDrawn, structuresDrawn = 0, 0
   for _, item in ipairs(drawables) do
     if item.type == "cell" then
-      local x, y = item.x, item.y
-      local kind = surfaceKind(profile, overview, x, y)
+      local kind = surfaceKind(item.scene.profile, item.scene.overview,
+                               item.localX, item.localY)
       local z = heightFor(kind)
-      local east = surfaceHeight(profile, overview, x + 1, y)
-      local south = surfaceHeight(profile, overview, x, y + 1)
-      drawSide(proj, x, y, z, east, "east", kind)
-      drawSide(proj, x, y, z, south, "south", kind)
-      drawDetailedTop(proj, overview, x, y, z, kind)
+      local east = worldHeightAt(scenes, item.x + 1, item.y)
+      local south = worldHeightAt(scenes, item.x, item.y + 1)
+      drawSide(proj, item.x, item.y, z, east, "east", kind)
+      drawSide(proj, item.x, item.y, z, south, "south", kind)
+      drawDetailedTop(proj, item.scene.overview,
+                      item.localX, item.localY,
+                      item.x, item.y, z, kind)
       cellsDrawn = cellsDrawn + 1
+      if not item.scene.active then neighborCellsDrawn = neighborCellsDrawn + 1 end
     elseif item.type == "vegetation" then
       drawVegetation(proj, item.x, item.y, self.level)
       vegetationDrawn = vegetationDrawn + 1
     elseif item.type == "structure" then
-      drawStructure(proj, item.structure, self.level)
+      drawStructure(proj, item.structure, self.level,
+                    item.scene.offsetX, item.scene.offsetY)
       structuresDrawn = structuresDrawn + 1
     else
-      drawActor(proj, profile, overview, item.pose)
+      drawActor(proj, scenes, item.pose)
       actorsDrawn = actorsDrawn + 1
     end
   end
@@ -435,7 +504,7 @@ function Renderer:drawWorld(ctx)
     love.graphics.setColor(1, 1, 1, 1)
     ctx.drawFx(function(wx, wy)
       local cx, cy = math.floor(wx / 16), math.floor(wy / 16)
-      local z = surfaceKind(profile, overview, cx, cy) == "water"
+      local z = worldKindAt(scenes, cx, cy) == "water"
         and heightFor("water") or 0
       return proj:worldPixel(wx, wy, z)
     end, proj.spriteScale)
@@ -446,8 +515,10 @@ function Renderer:drawWorld(ctx)
 
   self.lastStats = {
     mapId = snapshot.mapId,
-    profile = profile.name,
+    profile = activeScene.profile.name,
     cells = cellsDrawn,
+    neighborCells = neighborCellsDrawn,
+    neighborMaps = #scenes - 1,
     actors = actorsDrawn,
     vegetation = vegetationDrawn,
     structures = structuresDrawn,
