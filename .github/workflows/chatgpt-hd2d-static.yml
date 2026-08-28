@@ -7,7 +7,6 @@ on:
     paths:
       - 'packages/kanto_rework_hd2d_world/**'
       - 'tests/hd2d_scene_contract.lua'
-      - 'tests/hd2d_scene_loader_test.lua'
       - 'tests/hd2d_scene_loader_test9.lua'
       - 'tests/love_hd2d_shader_gate/**'
       - 'tests/love_hd2d_style_gate/**'
@@ -29,12 +28,10 @@ jobs:
     steps:
       - name: Checkout KRS
         uses: actions/checkout@v4
-
       - name: Install Lua 5.1
         run: |
           sudo apt-get update
           sudo apt-get install -y lua5.1
-
       - name: Compile-check scene renderer Lua
         shell: bash
         run: |
@@ -51,10 +48,8 @@ jobs:
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test9_atlas_gate/main.lua
-
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
-
       - name: Run true-scene projection/material contract
         run: lua5.1 tests/hd2d_scene_contract.lua
 
@@ -64,17 +59,14 @@ jobs:
     steps:
       - name: Checkout KRS
         uses: actions/checkout@v4
-
       - name: Install LuaJIT
         run: |
           sudo apt-get update
           sudo apt-get install -y luajit
-
       - name: Checkout Gen1Recomp v0.2.32
         run: |
           git clone --depth 1 --branch v0.2.32 \
             https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
-
       - name: Load TEST9 through official mod loader
         shell: bash
         run: |
@@ -83,7 +75,6 @@ jobs:
           KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" \
             luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test9.lua" \
             2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader-test9.log"
-
       - name: Upload loader diagnostic
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,13 +90,11 @@ jobs:
     steps:
       - name: Checkout KRS
         uses: actions/checkout@v4
-
       - name: Install LÖVE and virtual display
         run: |
           sudo apt-get update
           sudo apt-get install -y love xvfb
           love --version
-
       - name: Compile and execute world atmosphere on real LÖVE
         shell: bash
         run: |
@@ -113,7 +102,6 @@ jobs:
           KRS_ROOT="$GITHUB_WORKSPACE" \
             timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
             2>&1 | tee hd2d-love-shader.log
-
       - name: Require source-textured scene objects on real LÖVE
         shell: bash
         run: |
@@ -121,7 +109,6 @@ jobs:
           KRS_ROOT="$GITHUB_WORKSPACE" \
             timeout 30s xvfb-run -a love tests/love_hd2d_style_gate \
             2>&1 | tee hd2d-love-style.log
-
       - name: Require live perspective scale and world apron
         shell: bash
         run: |
@@ -129,7 +116,6 @@ jobs:
           KRS_ROOT="$GITHUB_WORKSPACE" \
             timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate \
             2>&1 | tee hd2d-love-live-polish.log
-
       - name: Require vanilla-aware natural forms and seam-safe actors
         shell: bash
         run: |
@@ -141,7 +127,6 @@ jobs:
             -name 'hd2d-natural-forms.png' \
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-natural-forms.png
-
       - name: Render TEST9 continuous direct-atlas world
         shell: bash
         run: |
@@ -155,7 +140,6 @@ jobs:
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-test9-atlas-raw.png
           test -s hd2d-test9-atlas-depth.png
-
       - name: Render TEST5 interior regression diorama
         shell: bash
         run: |
@@ -171,7 +155,6 @@ jobs:
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-test5-interior-raw.png
           test -s hd2d-test5-interior-depth.png
-
       - name: Render base synthetic diorama regression
         shell: bash
         run: |
@@ -184,7 +167,6 @@ jobs:
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-scene-raw.png
           test -s hd2d-scene-depth.png
-
       - name: Upload real-LÖVE TEST9 diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -211,9 +193,42 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    if: ${{ false }}
-    name: Package TEST9 (disabled until visual acceptance)
+    name: Package validated TEST9 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TEST9 packaging remains gated on raster review"
+      - name: Checkout validated KRS head
+        uses: actions/checkout@v4
+      - name: Verify TEST9 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('packages/kanto_rework_hd2d_world/manifest.json').read_text(encoding='utf-8'))
+          assert data['id'] == 'kanto_rework_hd2d_world'
+          assert data['version'] == '0.2.7-cphd2d12-test9'
+          PY
+      - name: Build installable TEST9 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd packages
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d12-test9.zip \
+            kanto_rework_hd2d_world \
+            -x '*/.DS_Store' '*/Thumbs.db'
+          cd ..
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d12-test9.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d12-test9.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d12-test9.zip
+      - name: Upload TEST9 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-test9-build
+          path: |
+            dist/kanto_rework_hd2d_world-cphd2d12-test9.zip
+            dist/kanto_rework_hd2d_world-cphd2d12-test9.sha256
+          if-no-files-found: error
+          retention-days: 14
