@@ -15,6 +15,7 @@ on:
       - 'tests/love_hd2d_scene_gate/**'
       - 'tests/love_hd2d_test5_scene_gate/**'
       - 'tests/love_hd2d_test7_scene_gate/**'
+      - 'tests/love_hd2d_test8_atlas_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -50,6 +51,7 @@ jobs:
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test7_scene_gate/main.lua
+          luac5.1 -p tests/love_hd2d_test8_atlas_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
@@ -141,7 +143,21 @@ jobs:
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-natural-forms.png
 
-      - name: Render full TEST7 vanilla terrain-remaster route
+      - name: Render TEST8 direct-atlas world without flat capture
+        shell: bash
+        run: |
+          set -euo pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_test8_atlas_gate \
+            2>&1 | tee hd2d-love-test8-atlas.log
+          find "$HOME/.local/share/love" -type f \
+            \( -name 'hd2d-test8-atlas-raw.png' \
+            -o -name 'hd2d-test8-atlas-depth.png' \) \
+            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          test -s hd2d-test8-atlas-raw.png
+          test -s hd2d-test8-atlas-depth.png
+
+      - name: Render TEST7 terrain regression route
         shell: bash
         run: |
           set -euo pipefail
@@ -188,16 +204,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test7-visual-gate
+          name: chatgpt-hd2d-test8-visual-gate
           path: |
             hd2d-love-shader.log
             hd2d-love-style.log
             hd2d-love-live-polish.log
             hd2d-love-natural-forms.log
+            hd2d-love-test8-atlas.log
             hd2d-love-test7.log
             hd2d-love-test5.log
             hd2d-love-scene.log
             hd2d-natural-forms.png
+            hd2d-test8-atlas-raw.png
+            hd2d-test8-atlas-depth.png
             hd2d-test7-route-raw.png
             hd2d-test7-route-depth.png
             hd2d-scene-raw.png
@@ -209,47 +228,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # Packaging is intentionally disabled while TEST8's direct-atlas visual gate
+  # is being judged. It is re-enabled only after the rasterized scene is accepted.
   package-live-test:
-    name: Package validated TEST7 build
+    if: ${{ false }}
+    name: Package live test (disabled during TEST8 visual gate)
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
-
-      - name: Verify TEST7 manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path('packages/kanto_rework_hd2d_world/manifest.json')
-          data = json.loads(p.read_text(encoding='utf-8'))
-          assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.5-cphd2d10-test7'
-          PY
-
-      - name: Build installable TEST7 archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d10-test7.zip \
-            kanto_rework_hd2d_world \
-            -x '*/.DS_Store' '*/Thumbs.db'
-          cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d10-test7.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d10-test7.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d10-test7.zip
-
-      - name: Upload TEST7 build
-        uses: actions/upload-artifact@v4
-        with:
-          name: chatgpt-hd2d-test7-build
-          path: |
-            dist/kanto_rework_hd2d_world-cphd2d10-test7.zip
-            dist/kanto_rework_hd2d_world-cphd2d10-test7.sha256
-          if-no-files-found: error
-          retention-days: 14
+      - run: echo "TEST8 packaging is gated on visual acceptance"
