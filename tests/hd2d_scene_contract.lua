@@ -16,15 +16,29 @@ local ax, ay = p:cell(0, 0, 0)
 local bx, by = p:cell(1, 0, 0)
 local cx, cy = p:cell(0, 1, 0)
 assert((bx - ax) * (cx - ax) < 0,
-  "scene X/Y axes must rotate toward opposite horizontal directions")
+  "three-quarter camera must expose both world axes on opposite screen sides")
 assert(by > ay and cy > ay,
-  "scene X/Y axes must both recede vertically")
-local gx, gy = p:cell(4, 4, 0)
-local hx, hy = p:cell(4, 4, 1)
-assert(math.abs(gx - hx) < 1e-6 and hy < gy,
-  "positive elevation must lift without horizontal drift")
-assert(p.tileW > p.tileH,
-  "scene ground must use a wide isometric tile footprint")
+  "positive world X/Y directions must move toward the camera in screen depth")
+
+-- Perspective is now structural, not a post-process warp: one world-cell span
+-- must visibly shrink with camera distance.
+local nearY = p.targetY + 2
+local farY = p.targetY - 5
+local n0x = p:cell(p.targetX, nearY, 0)
+local n1x = p:cell(p.targetX + 1, nearY, 0)
+local f0x = p:cell(p.targetX, farY, 0)
+local f1x = p:cell(p.targetX + 1, farY, 0)
+assert(math.abs(f1x - f0x) < math.abs(n1x - n0x),
+  "far ground cells must contract under perspective")
+
+local gx, gy = p:cell(p.targetX, p.targetY, 0)
+local hx, hy = p:cell(p.targetX, p.targetY, 1)
+assert(hy < gy,
+  "positive elevation must lift toward the top of the screen")
+assert(math.abs(gx - hx) < 1e-6,
+  "elevation on the camera target ray must not drift sideways")
+assert(p.tileW > p.tileH and p.focal > 0,
+  "perspective camera calibration is invalid")
 
 local blocked = {}
 for y = 2, 3 do
