@@ -53,6 +53,15 @@ local function eastWall(proj, x, y0, y1, z0, z1)
   return { ax, ay, bx, by, cx, cy, dx, dy }
 end
 
+local function flipVerticalFace(points)
+  return {
+    points[7], points[8],
+    points[5], points[6],
+    points[3], points[4],
+    points[1], points[2],
+  }
+end
+
 local function sourceRect(renderer, worldX, worldY, worldW, worldH)
   local sx = worldX * CELL - renderer.sourceCamX
   local sy = worldY * CELL - renderer.sourceCamY
@@ -112,13 +121,12 @@ local function structureShadow(proj, x0, y0, x1, y1, level)
                      x1 + dx * 1.55, y1 + dy * 1.55, 0.004))
 end
 
-local function pixelCrown(cx, cy, w, h, color)
-  setColor(color)
+local function crownPoints(cx, cy, w, h)
   local x0, x1 = cx - w * 0.5, cx + w * 0.5
   local y0, y1 = cy - h * 0.5, cy + h * 0.5
   local sx = w * 0.18
   local sy = h * 0.20
-  drawPoly({
+  return {
     x0 + sx, y0,
     x1 - sx, y0,
     x1, y0 + sy,
@@ -127,7 +135,39 @@ local function pixelCrown(cx, cy, w, h, color)
     x0 + sx, y1,
     x0, y1 - sy,
     x0, y0 + sy,
-  })
+  }
+end
+
+local function pixelCrown(cx, cy, w, h, color, alpha)
+  setColor(color, alpha or 1)
+  drawPoly(crownPoints(cx, cy, w, h))
+end
+
+local function texturedCrown(renderer, cx, cy, w, h, rect)
+  if not (rect and love.graphics.stencil and love.graphics.setStencilTest) then
+    return false
+  end
+  local crown = crownPoints(cx, cy, w, h)
+  local quad = {
+    cx - w * 0.5, cy - h * 0.5,
+    cx + w * 0.5, cy - h * 0.5,
+    cx + w * 0.5, cy + h * 0.5,
+    cx - w * 0.5, cy + h * 0.5,
+  }
+  local textured = false
+  local ok = pcall(function()
+    love.graphics.stencil(function()
+      love.graphics.polygon("fill", crown)
+    end, "replace", 1)
+    love.graphics.setStencilTest("greater", 0)
+    textured = texturedFace(renderer, quad, rect, { 0.98, 1.00, 0.96 }, 1)
+    love.graphics.setStencilTest()
+  end)
+  if not ok then
+    pcall(love.graphics.setStencilTest)
+    return false
+  end
+  return textured
 end
 
 local function installConservativeNaturalSemantics(classifier)
@@ -138,10 +178,10 @@ local function installConservativeNaturalSemantics(classifier)
     local material = baseClassify(map, cx, cy)
     if material.kind == "solid" and material.family == "vegetation" then
       local mass = classifier.massInfo(map, cx, cy)
-      -- TEST2's Pallet capture proves that a repeated edge collision mass can
-      -- be a rock/border wall. Until a tileset exposes explicit vegetation
+      -- TEST2's live Pallet capture proves that a repeated edge collision mass
+      -- can be rock/border scenery. Until Gen1 exposes explicit vegetation
       -- metadata, edge-touching masses stay textured low relief; only repeated
-      -- interior masses are promoted to tree silhouettes.
+      -- interior masses become upright vegetation silhouettes.
       if mass and mass.touchesEdge then
         material.family = "boundary"
         material.heightScale = 1.18
@@ -179,7 +219,6 @@ function SceneStyle.apply(renderer)
     local roofRect = sourceRect(self, x0, y0, x1 - x0, math.min(1, y1 - y0))
     local frontRect = sourceRect(self, x0, math.max(y0, y1 - 1), x1 - x0, 1)
 
-    -- Far roof slope.
     local n0x, n0y = proj:cell(x0 - 0.10, y0 - 0.05, wallH)
     local n1x, n1y = proj:cell(x1 + 0.10, y0 - 0.05, wallH)
     local r1x, r1y = proj:cell(x1 + 0.10, ridgeY, ridgeH)
@@ -190,9 +229,8 @@ function SceneStyle.apply(renderer)
       drawPoly(farRoof)
     end
 
-    -- Front wall first so the near roof naturally overhangs it.
     local frontWall = southWall(proj, x0, x1, y1, 0, wallH)
-    local texturedFront = texturedFace(self, frontWall, frontRect,
+    local texturedFront = texturedFace(self, flipVerticalFace(frontWall), frontRect,
                                        { 0.92, 0.93, 0.89 }, 1)
     if not texturedFront then
       setColor(wallColor)
@@ -202,8 +240,6 @@ function SceneStyle.apply(renderer)
     setColor(C.wallSide)
     drawPoly(eastWall(proj, x1, y0, y1, 0, wallH))
 
-    -- Near roof slope reuses the original pixel roof strip, preserving the Gen
-    -- I roof pattern and palette while giving it actual 3D pitch.
     local f0x, f0y = proj:cell(x0 - 0.12, y1 + 0.08, wallH)
     local f1x, f1y = proj:cell(x1 + 0.12, y1 + 0.08, wallH)
     local rr1x, rr1y = proj:cell(x1 + 0.10, ridgeY, ridgeH)
@@ -220,27 +256,30 @@ function SceneStyle.apply(renderer)
     setColor(C.roofFar, 1, 0.90)
     drawPoly({ e0x, e0y, e1x, e1y, erx, ery })
 
-    if not texturedFront then
-      local doorX = findDoorX(self.MaterialClassifier, cmd.scene.map, mass) + ox
-      drawSouthPanel(proj, doorX - 0.25, doorX + 0.25, y1 + 0.006,
-                     0.01, wallH * 0.62, C.door)
-      if x1 - x0 >= 2.2 then
-        local function windowAt(cx)
-          if math.abs(cx - doorX) < 0.62 then return end
-          drawSouthPanel(proj, cx - 0.21, cx + 0.21, y1 + 0.008,
-                         wallH * 0.31, wallH * 0.56, C.window)
-        end
-        windowAt(x0 + 0.62)
-        windowAt(x1 - 0.62)
+    local doorX = findDoorX(self.MaterialClassifier, cmd.scene.map, mass) + ox
+    drawSouthPanel(proj, doorX - 0.245, doorX + 0.245, y1 + 0.008,
+                   0.01, wallH * 0.62, C.door, texturedFront and 0.72 or 1)
+    if x1 - x0 >= 2.2 then
+      local function windowAt(cx)
+        if math.abs(cx - doorX) < 0.62 then return end
+        drawSouthPanel(proj, cx - 0.21, cx + 0.21, y1 + 0.009,
+                       wallH * 0.31, wallH * 0.56, C.window,
+                       texturedFront and 0.42 or 1)
       end
+      windowAt(x0 + 0.62)
+      windowAt(x1 - 0.62)
     end
 
     if love.graphics.line and love.graphics.setLineWidth then
       love.graphics.setLineWidth(math.max(1, proj.tileW * 0.020))
       setColor(C.shadow, 0.33)
       love.graphics.line(f0x, f0y, f1x, f1y)
-      setColor({ 1, 1, 1 }, 0.16)
+      setColor({ 1, 1, 1 }, 0.18)
       love.graphics.line(rr0x, rr0y, rr1x, rr1y)
+      local wx0, wy0 = proj:cell(x0, y1 + 0.012, wallH)
+      local wx1, wy1 = proj:cell(x1, y1 + 0.012, wallH)
+      setColor({ 1, 1, 1 }, 0.10)
+      love.graphics.line(wx0, wy0, wx1, wy1)
     end
   end
 
@@ -260,18 +299,20 @@ function SceneStyle.apply(renderer)
     drawPoly({ bx - halfTrunk, by, bx + halfTrunk, by,
                tx + halfTrunk, ty, tx - halfTrunk, ty })
 
-    -- Camera-facing stepped crowns read like upright pixel-art sprites while
-    -- still occupying a real world depth point. This avoids the stacked-cube
-    -- look of the first scene prototype.
-    local c1x, c1y = proj:cell(cx - 0.03, cy, 0.48 * levelScale)
+    local c1x, c1y = proj:cell(cx - 0.03, cy, 0.49 * levelScale)
     local c2x, c2y = proj:cell(cx + 0.02, cy, 0.66 * levelScale)
     local c3x, c3y = proj:cell(cx - 0.01, cy, 0.83 * levelScale)
-    pixelCrown(c1x - proj.tileW * 0.07, c1y,
-               proj.tileW * 0.62, proj.tileW * 0.34, C.leafDark)
-    pixelCrown(c2x + proj.tileW * 0.05, c2y,
-               proj.tileW * 0.68, proj.tileW * 0.36, C.leaf)
-    pixelCrown(c3x, c3y,
-               proj.tileW * 0.48, proj.tileW * 0.28, C.leafLight)
+    local ownRect = sourceRect(self, x, y, 1, 1)
+
+    pixelCrown(c1x - proj.tileW * 0.06, c1y + proj.tileW * 0.015,
+               proj.tileW * 0.66, proj.tileW * 0.35, C.leafDark, 1)
+    if not texturedCrown(self, c2x + proj.tileW * 0.035, c2y,
+                         proj.tileW * 0.72, proj.tileW * 0.43, ownRect) then
+      pixelCrown(c2x + proj.tileW * 0.035, c2y,
+                 proj.tileW * 0.72, proj.tileW * 0.43, C.leaf, 1)
+    end
+    pixelCrown(c3x - proj.tileW * 0.02, c3y - proj.tileW * 0.008,
+               proj.tileW * 0.48, proj.tileW * 0.26, C.leafLight, 0.78)
   end
 
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
@@ -284,8 +325,6 @@ function SceneStyle.apply(renderer)
     drawPoly(southWall(proj, x, x + 1, y + 1, 0, height))
     drawPoly(eastWall(proj, x + 1, y, y + 1, 0, height))
 
-    -- Natural obstacles keep their own source cell on the raised top instead
-    -- of the donor ground sample used to clean the flat footprint.
     local own = sourceRect(self, x, y, 1, 1)
     local points = proj:cellPolygon(x, y, height)
     if not texturedFace(self, points, own, { 0.94, 0.95, 0.94 }, 1) then
