@@ -44,6 +44,7 @@ local SceneRenderer = loadLocal("hd2d.SceneRenderer", "hd2d/SceneRenderer.lua")
 local SceneStyle = loadLocal("hd2d.SceneStyle", "hd2d/SceneStyle.lua")
 local LivePolish = loadLocal("hd2d.LivePolish", "hd2d/LivePolish.lua")
 local VanillaMotifs = loadLocal("hd2d.VanillaMotifs", "hd2d/VanillaMotifs.lua")
+local LedgeTopology = loadLocal("hd2d.LedgeTopology", "hd2d/LedgeTopology.lua")
 local DioramaPolish = loadLocal("hd2d.DioramaPolish", "hd2d/DioramaPolish.lua")
 local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
 local NaturalScale = loadLocal("hd2d.NaturalScale", "hd2d/NaturalScale.lua")
@@ -81,6 +82,9 @@ renderer = NaturalScale.apply(renderer)
 -- fallback for engines/tests that do not expose image/quads.
 renderer = AtlasWorld.apply(renderer, AtlasSource)
 renderer = SceneContinuity.apply(renderer)
+-- TerrainRemaster owns true surface Z. Semantic lawn/path categories remain
+-- coplanar; only explicit map elevation or canonical one-way ledges generate
+-- height. LedgeTopology derives those levels from vanilla tile relations.
 renderer = TerrainRemaster.apply(renderer)
 
 local atmosphere = WorldAtmosphere.new()
@@ -115,6 +119,7 @@ mod.exports.materialClassifier = MaterialClassifier
 mod.exports.sceneStyle = SceneStyle
 mod.exports.livePolish = LivePolish
 mod.exports.vanillaMotifs = VanillaMotifs
+mod.exports.ledgeTopology = LedgeTopology
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
 mod.exports.naturalScale = NaturalScale
