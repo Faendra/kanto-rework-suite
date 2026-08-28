@@ -44,11 +44,13 @@ end
 local Projection = loadLocal("hd2d.Projection", "hd2d/Projection.lua")
 local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialClassifier.lua")
 local Relief = loadLocal("hd2d.Relief", "hd2d/Relief.lua")
+local WaterSurface = loadLocal("hd2d.WaterSurface", "hd2d/WaterSurface.lua")
 local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
 local renderer = Renderer.new(Projection, MaterialClassifier)
 local relief = Relief.new(MaterialClassifier)
+local water = WaterSurface.new(MaterialClassifier)
 local occlusion = Occlusion.new()
 
 -- Relief is a composable world pass. The original renderer implementation
@@ -56,6 +58,15 @@ local occlusion = Occlusion.new()
 -- map and every connected neighbour use the same semantic height rule.
 renderer.drawSolidRelief = function(self, ctx, proj)
   return relief:draw(self, ctx, proj)
+end
+
+-- Preserve the renderer's restrained animated highlight, but make the actual
+-- water geometry a lower continuous plane first. The original/current water
+-- pixels remain the material source; only their presentation depth changes.
+local drawWaterLight = renderer.drawWaterLight
+renderer.drawWaterLight = function(self, ctx, proj)
+  water:draw(self, ctx, proj, self.level)
+  drawWaterLight(self, ctx, proj)
 end
 
 -- Renderer owns the world canvas. Insert the terrain-priority overlay after
@@ -73,6 +84,7 @@ mod.exports.renderer = renderer
 mod.exports.projection = Projection
 mod.exports.materialClassifier = MaterialClassifier
 mod.exports.relief = relief
+mod.exports.water = water
 mod.exports.occlusion = occlusion
 
 mod.content.render_pipelines:register("krs_hd2d_world", {
@@ -91,6 +103,7 @@ mod.content.render_pipelines:register("krs_hd2d_world", {
   end,
   invalidate = function()
     renderer:invalidate()
+    MaterialClassifier.invalidate()
     occlusion:invalidate()
   end,
 })
