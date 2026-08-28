@@ -1,3 +1,5 @@
+local NeighborScenes = require("sol3d.NeighborScenes")
+
 local WorldAdapter = {}
 WorldAdapter.__index = WorldAdapter
 
@@ -36,6 +38,11 @@ function WorldAdapter:snapshot()
                             mapDef.tileset)
   end
 
+  -- Direct map connections are reconstructed as read-only preview scenes from
+  -- the same public content registries.  They never become runtime Maps and do
+  -- not own collision, scripts, objects, encounters or persistence.
+  local neighbors = NeighborScenes.build(self.mod, mapDef)
+
   self.lastError = nil
   return {
     mapId = current.mapId,
@@ -47,6 +54,7 @@ function WorldAdapter:snapshot()
     overview = overview,
     mapDef = mapDef,
     tilesetDef = tilesetDef,
+    neighbors = neighbors,
   }
 end
 
