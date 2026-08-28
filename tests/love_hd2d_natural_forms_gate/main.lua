@@ -27,8 +27,9 @@ function love.load()
     local NaturalForms = module(root, "hd2d/NaturalForms.lua")
     local SceneContinuity = module(root, "hd2d/SceneContinuity.lua")
 
-    local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
-    local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
+    -- Verified directly from Pokemon Red generated/tilesets/overworld.png.
+    local TREE = { 0x40, 0x41, 0x50, 0x51 }
+    local BOULDER = { 0x2A, 0x2B, 0x3A, 0x3B }
     local map = {
       def = { tileset = "OVERWORLD" },
       widthCells = 8,
