@@ -6,10 +6,10 @@ on:
       - experiment/chatgpt-sol-hd2d-world
     paths:
       - 'packages/kanto_rework_hd2d_world/**'
-      - 'tests/hd2d_projection_contract.lua'
-      - 'tests/hd2d_mod_loader_test.lua'
+      - 'tests/hd2d_scene_contract.lua'
+      - 'tests/hd2d_scene_loader_test.lua'
       - 'tests/love_hd2d_shader_gate/**'
-      - 'tests/love_hd2d_visual_gate/**'
+      - 'tests/love_hd2d_scene_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   syntax-contracts:
-    name: Lua 5.1 syntax + pure contracts
+    name: Lua 5.1 syntax + scene contracts
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -29,26 +29,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y lua5.1
 
-      - name: Compile-check experiment Lua sources
+      - name: Compile-check scene renderer Lua
         shell: bash
         run: |
           set -euo pipefail
           find packages/kanto_rework_hd2d_world -type f -name '*.lua' -print0 \
             | sort -z \
             | xargs -0 -n1 luac5.1 -p
-          luac5.1 -p tests/hd2d_projection_contract.lua
-          luac5.1 -p tests/hd2d_mod_loader_test.lua
+          luac5.1 -p tests/hd2d_scene_contract.lua
+          luac5.1 -p tests/hd2d_scene_loader_test.lua
           luac5.1 -p tests/love_hd2d_shader_gate/main.lua
-          luac5.1 -p tests/love_hd2d_visual_gate/main.lua
+          luac5.1 -p tests/love_hd2d_scene_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
 
-      - name: Run projection/material contracts
-        run: lua5.1 tests/hd2d_projection_contract.lua
+      - name: Run true-scene projection/material contract
+        run: lua5.1 tests/hd2d_scene_contract.lua
 
   gen1recomp-loader:
-    name: Gen1Recomp v0.2.32 loader + synthetic world
+    name: Gen1Recomp v0.2.32 scene loader
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -64,26 +64,26 @@ jobs:
           git clone --depth 1 --branch v0.2.32 \
             https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
 
-      - name: Load package through official mod loader
+      - name: Load scene package through official mod loader
         shell: bash
         run: |
           set -o pipefail
           cd /tmp/gen1recomp
           KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" \
-            luajit "$GITHUB_WORKSPACE/tests/hd2d_mod_loader_test.lua" \
-            2>&1 | tee "$GITHUB_WORKSPACE/hd2d-loader.log"
+            luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test.lua" \
+            2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader.log"
 
       - name: Upload loader diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-loader-diagnostic
-          path: hd2d-loader.log
+          name: chatgpt-hd2d-scene-loader-diagnostic
+          path: hd2d-scene-loader.log
           if-no-files-found: error
           retention-days: 7
 
-  love-shader:
-    name: Real LÖVE shader + synthetic visual
+  love-scene:
+    name: Real LÖVE scene + atmosphere visual
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -103,41 +103,41 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_shader_gate \
             2>&1 | tee hd2d-love-shader.log
 
-      - name: Render synthetic HD2D scene on real LÖVE
+      - name: Render true synthetic diorama on real LÖVE
         shell: bash
         run: |
           set -euo pipefail
           KRS_ROOT="$GITHUB_WORKSPACE" \
-            timeout 30s xvfb-run -a love tests/love_hd2d_visual_gate \
-            2>&1 | tee hd2d-love-visual.log
+            timeout 30s xvfb-run -a love tests/love_hd2d_scene_gate \
+            2>&1 | tee hd2d-love-scene.log
           find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-visual-raw.png' -o -name 'hd2d-visual-depth.png' \) \
+            \( -name 'hd2d-scene-raw.png' -o -name 'hd2d-scene-depth.png' \) \
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
-          test -s hd2d-visual-raw.png
-          test -s hd2d-visual-depth.png
+          test -s hd2d-scene-raw.png
+          test -s hd2d-scene-depth.png
 
-      - name: Upload LÖVE diagnostics and visual gate
+      - name: Upload real-LÖVE scene diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-love-visual-gate
+          name: chatgpt-hd2d-scene-visual-gate
           path: |
             hd2d-love-shader.log
-            hd2d-love-visual.log
-            hd2d-visual-raw.png
-            hd2d-visual-depth.png
+            hd2d-love-scene.log
+            hd2d-scene-raw.png
+            hd2d-scene-depth.png
           if-no-files-found: warn
           retention-days: 7
 
   package-live-test:
-    name: Package validated live test build
-    needs: [syntax-contracts, gen1recomp-loader, love-shader]
+    name: Package validated TEST3 build
+    needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
 
-      - name: Verify live-test manifest
+      - name: Verify TEST3 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -147,29 +147,29 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.1.0-cphd2d04-test2'
+          assert data['version'] == '0.2.0-cphd2d05-test3'
           PY
 
-      - name: Build installable test archive
+      - name: Build installable TEST3 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d04-test2.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d05-test3.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d04-test2.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d04-test2.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d04-test2.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d05-test3.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d05-test3.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d05-test3.zip
 
-      - name: Upload live test build
+      - name: Upload TEST3 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-live-test-build
+          name: chatgpt-hd2d-test3-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d04-test2.zip
-            dist/kanto_rework_hd2d_world-cphd2d04-test2.sha256
+            dist/kanto_rework_hd2d_world-cphd2d05-test3.zip
+            dist/kanto_rework_hd2d_world-cphd2d05-test3.sha256
           if-no-files-found: error
           retention-days: 14
