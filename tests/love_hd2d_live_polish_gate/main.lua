@@ -48,6 +48,11 @@ function love.load()
         self._vegetationWidth = proj.tileW
         return true
       end,
+      drawLowPrism = function(self, proj, cmd, height)
+        self._boundaryWidth = proj.tileW
+        self._boundaryHeight = height
+        return true
+      end,
       drawStructure = function() return true end,
     }
     LivePolish.apply(fake)
@@ -81,6 +86,20 @@ function love.load()
     local farTree = assert(fake._vegetationWidth, "far vegetation width missing")
     assert(nearTree > farTree * 1.05,
            "vegetation silhouettes are not shrinking with perspective depth")
+
+    fake:drawLowPrism(proj, { x = 4, y = 5 }, 0.18)
+    local rockHeightA = assert(fake._boundaryHeight, "boundary relief height missing")
+    local rockWidthA = assert(fake._boundaryWidth, "boundary perspective width missing")
+    assert(rockHeightA >= 0.23,
+           "rock boundary remained too flat after live polish")
+    fake:drawLowPrism(proj, { x = 5, y = 5 }, 0.18)
+    local rockHeightB = assert(fake._boundaryHeight, "second boundary relief height missing")
+    assert(math.abs(rockHeightA - rockHeightB) > 0.001,
+           "rock boundary relief has no deterministic height variation")
+    fake:drawLowPrism(proj, { x = 4, y = 0 }, 0.18)
+    local farRockWidth = assert(fake._boundaryWidth, "far boundary width missing")
+    assert(rockWidthA > farRockWidth * 1.05,
+           "rock boundaries are not shrinking with perspective depth")
 
     love.graphics.setCanvas(love.graphics.newCanvas(960, 540))
     fake:drawBackdrop(ctx, proj)
