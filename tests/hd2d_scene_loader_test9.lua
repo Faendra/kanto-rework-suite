@@ -1,4 +1,4 @@
--- Official Gen1Recomp v0.2.32 loader gate for TEST9.
+-- Official Gen1Recomp v0.2.32 loader gate for TEST11 terrain topology.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -27,7 +27,7 @@ local RELATIVE_FILES = {
   "manifest.json", "main.lua",
   "hd2d/SceneProjection.lua", "hd2d/SceneRenderer.lua",
   "hd2d/SceneStyle.lua", "hd2d/LivePolish.lua",
-  "hd2d/VanillaMotifs.lua", "hd2d/DioramaPolish.lua",
+  "hd2d/VanillaMotifs.lua", "hd2d/LedgeTopology.lua", "hd2d/DioramaPolish.lua",
   "hd2d/NaturalForms.lua", "hd2d/NaturalScale.lua",
   "hd2d/AtlasSource.lua", "hd2d/AtlasWorld.lua",
   "hd2d/SceneContinuity.lua", "hd2d/TerrainRemaster.lua",
@@ -87,13 +87,13 @@ end
 local data = {}
 local loader = Loader.new({ fs = memfs(files), generation = 1, dev = true })
 assert(loader:load(data),
-  "TEST9 loader rejected package: " .. table.concat(loader.errors, "; "))
+  "TEST11 loader rejected package: " .. table.concat(loader.errors, "; "))
 assert(#loader.errors == 0,
-  "TEST9 loader errors: " .. table.concat(loader.errors, "; "))
+  "TEST11 loader errors: " .. table.concat(loader.errors, "; "))
 
-local exports = assert(loader.exports.kanto_rework_hd2d_world, "TEST9 exports missing")
+local exports = assert(loader.exports.kanto_rework_hd2d_world, "TEST11 exports missing")
 for _, name in ipairs({ "renderer", "projection", "materialClassifier",
-  "vanillaMotifs", "naturalForms", "naturalScale", "atlasSource",
+  "vanillaMotifs", "ledgeTopology", "naturalForms", "naturalScale", "atlasSource",
   "atlasWorld", "terrainRemaster", "atmosphere" }) do
   assert(type(exports[name]) == "table", name .. " export missing")
 end
@@ -101,7 +101,7 @@ end
 Pipelines.install(data)
 Pipelines.setLevel("krs_hd2d_world", 2)
 Pipelines.update(0)
-assert(Pipelines.worldPipeline() == "krs_hd2d_world", "TEST9 pipeline unavailable")
+assert(Pipelines.worldPipeline() == "krs_hd2d_world", "TEST11 pipeline unavailable")
 
 local flatCalls = 0
 local rendererStub = {
@@ -128,7 +128,7 @@ for y = 1, 3 do put(7, y, "tree") end
 put(1, 5, "boulder")
 for y = 2, 3 do for x = 2, 4 do put(x, y, "house") end end
 
-local map = { id = "SYNTHETIC_TEST9_PALLET", def = { tileset = "OVERWORLD" },
+local map = { id = "SYNTHETIC_TEST11_PALLET", def = { tileset = "OVERWORLD" },
               widthCells = W, heightCells = H, renderer = rendererStub }
 function map:inBounds(x, y) return x >= 0 and y >= 0 and x < W and y < H end
 function map:isWaterCell(x, y) return y == H - 1 end
@@ -180,21 +180,22 @@ local ctx = {
 }
 
 local rendered = Pipelines.drawWorld("krs_hd2d_world", ctx)
-assert(rendered ~= nil, "TEST9 renderer produced no canvas")
+assert(rendered ~= nil, "TEST11 renderer produced no canvas")
 local r = exports.renderer
-assert((r.lastAtlasDirectFrames or 0) == 1, "TEST9 direct-atlas path inactive")
-assert((r.lastCompatibilityCaptureFrames or 0) == 0, "TEST9 used compatibility capture")
-assert(flatCalls == 0, "TEST9 invoked flattened map drawing")
-assert((r.lastFlatSourceFallbacks or 0) == 0, "TEST9 leaked flat-source textures")
-assert((r.lastAtlasGroundCells or 0) > 0, "TEST9 atlas ground missing")
-assert((r.lastAtlasNaturalObjects or 0) > 0, "TEST9 atlas natural objects missing")
-assert((r.lastAtlasStructures or 0) > 0, "TEST9 atlas structure missing")
-assert((r.lastRaisedLawnCells or 0) == 0, "TEST9 still raises lawn semantically")
-assert((r.lastTerrainSkirts or 0) == 0, "TEST9 still emits semantic terrain skirts")
-assert((r.lastFlatOutdoorCells or 0) > 20, "TEST9 outdoor terrain not coplanar")
-assert((r.lastPathCells or 0) > 0, "TEST9 path surface classification missing")
-assert((r.lastScaledTrees or 0) > 0, "TEST9 tree scale tuning inactive")
-assert((r.lastFlattenedBoulders or 0) > 0, "TEST9 boulder flattening inactive")
-assert(r.lastActors == 1, "TEST9 actor billboard missing")
+assert((r.lastAtlasDirectFrames or 0) == 1, "TEST11 direct-atlas path inactive")
+assert((r.lastCompatibilityCaptureFrames or 0) == 0, "TEST11 used compatibility capture")
+assert(flatCalls == 0, "TEST11 invoked flattened map drawing")
+assert((r.lastFlatSourceFallbacks or 0) == 0, "TEST11 leaked flat-source textures")
+assert((r.lastAtlasGroundCells or 0) > 0, "TEST11 atlas ground missing")
+assert((r.lastAtlasNaturalObjects or 0) > 0, "TEST11 atlas natural objects missing")
+assert((r.lastAtlasStructures or 0) > 0, "TEST11 atlas structure missing")
+assert((r.lastRaisedLawnCells or 0) == 0, "TEST11 still raises lawn semantically")
+assert((r.lastTerrainSkirts or 0) == 0, "TEST11 still emits semantic terrain skirts")
+assert((r.lastFlatOutdoorCells or 0) > 20, "TEST11 ordinary outdoor terrain not coplanar")
+assert((r.lastLedgeFaces or 0) == 0, "TEST11 no-ledge loader scene fabricated ledge faces")
+assert((r.lastPathCells or 0) > 0, "TEST11 path surface classification missing")
+assert((r.lastScaledTrees or 0) > 0, "TEST11 tree scale tuning inactive")
+assert((r.lastFlattenedBoulders or 0) > 0, "TEST11 boulder flattening inactive")
+assert(r.lastActors == 1, "TEST11 actor billboard missing")
 
-print("PASS hd2d_scene_loader_test9")
+print("PASS hd2d_scene_loader_test11")
