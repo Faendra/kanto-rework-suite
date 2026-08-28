@@ -3,11 +3,16 @@ local VanillaMotifs = require("hd2d.VanillaMotifs")
 local NaturalForms = {}
 
 local CELL = 16
+local BACKGROUND_LUMA = 0.44
 
 local function clamp(v, lo, hi)
   if v < lo then return lo end
   if v > hi then return hi end
   return v
+end
+
+local function safeRelease(obj)
+  if obj and obj.release then pcall(obj.release, obj) end
 end
 
 local function sourceRect(renderer, x, y)
@@ -88,6 +93,8 @@ local function cardVertices(proj, x, y, height, width)
   return out, bx, by, scale
 end
 
+-- Legacy compatibility fallback. TEST8's nominal tree path below no longer
+-- warps the 16x16 vanilla cell through this octagonal mesh.
 local function drawTexturedCard(renderer, proj, cmd,
                                 screenHeightRatio, width, tint, fallbackHeight)
   local rect = sourceRect(renderer, cmd.x, cmd.y)
@@ -129,6 +136,114 @@ local function drawTexturedCard(renderer, proj, cmd,
                          clamp(c[2], 0, 1),
                          clamp(c[3], 0, 1), 1)
   love.graphics.draw(mesh)
+  return true
+end
+
+local function luminance(r, g, b)
+  return (r + g + b) / 3
+end
+
+-- Build a one-time alpha mask from the exact 16x16 runtime atlas cell.
+-- We intentionally do NOT clear every edge-connected pixel: the canonical Red
+-- tree touches the cell border with dark foliage. Only bright background pixels
+-- connected to the outer edge are removed, preserving disconnected highlights
+-- and all dark silhouette pixels even when they meet the border.
+local function silhouetteTexture(renderer)
+  local source = renderer and renderer.source
+  if not source then return nil, 0 end
+
+  renderer.naturalSilhouetteCache = renderer.naturalSilhouetteCache or {}
+  local cached = renderer.naturalSilhouetteCache[source]
+  if cached then return cached.image, cached.cleared or 0 end
+
+  if not (source.newImageData and love and love.graphics
+          and love.graphics.newImage) then return nil, 0 end
+
+  local ok, data = pcall(source.newImageData, source)
+  if not ok or not data then return nil, 0 end
+  local w, h = data:getDimensions()
+  if w ~= CELL or h ~= CELL then
+    safeRelease(data)
+    return nil, 0
+  end
+
+  local visited = {}
+  local qx, qy = {}, {}
+  local head, tail = 1, 0
+  local function index(x, y) return y * w + x + 1 end
+  local function candidate(x, y)
+    local r, g, b, a = data:getPixel(x, y)
+    return a > 0.01 and luminance(r, g, b) >= BACKGROUND_LUMA
+  end
+  local function push(x, y)
+    if x < 0 or y < 0 or x >= w or y >= h then return end
+    local i = index(x, y)
+    if visited[i] or not candidate(x, y) then return end
+    visited[i] = true
+    tail = tail + 1
+    qx[tail], qy[tail] = x, y
+  end
+
+  for x = 0, w - 1 do push(x, 0); push(x, h - 1) end
+  for y = 1, h - 2 do push(0, y); push(w - 1, y) end
+
+  while head <= tail do
+    local x, y = qx[head], qy[head]
+    head = head + 1
+    push(x - 1, y); push(x + 1, y)
+    push(x, y - 1); push(x, y + 1)
+  end
+
+  local cleared = 0
+  for y = 0, h - 1 do
+    for x = 0, w - 1 do
+      if visited[index(x, y)] then
+        local r, g, b = data:getPixel(x, y)
+        data:setPixel(x, y, r, g, b, 0)
+        cleared = cleared + 1
+      end
+    end
+  end
+
+  local imageOk, image = pcall(love.graphics.newImage, data)
+  safeRelease(data)
+  if not imageOk or not image then return nil, 0 end
+  if image.setFilter then image:setFilter("nearest", "nearest") end
+
+  renderer.naturalSilhouetteCache[source] = { image = image, cleared = cleared }
+  return image, cleared
+end
+
+local function drawPixelBillboard(renderer, proj, cmd, screenHeightRatio, tint)
+  local image, cleared = silhouetteTexture(renderer)
+  if not image then return false end
+
+  local cx, cy = cmd.x + 0.5, cmd.y + 0.62
+  local bx, by = proj:cell(cx, cy, 0.008)
+  local perspective = proj.screenScale and proj:screenScale(cx, cy, 0)
+                      or proj.tileW or 1
+  local targetPixels = math.max(2, perspective * screenHeightRatio)
+  local iw, ih = image:getDimensions()
+  if not iw or not ih or iw <= 0 or ih <= 0 then return false end
+  local drawScale = targetPixels / ih
+
+  love.graphics.setColor(0, 0, 0, 0.17)
+  love.graphics.ellipse("fill", bx, by + 1,
+                        targetPixels * 0.29,
+                        targetPixels * 0.085)
+
+  local c = tint or { 1, 1, 1 }
+  love.graphics.setColor(clamp(c[1], 0, 1),
+                         clamp(c[2], 0, 1),
+                         clamp(c[3], 0, 1), 1)
+  love.graphics.draw(image, bx, by, 0,
+                     drawScale, drawScale,
+                     iw * 0.5, ih)
+
+  renderer.lastNaturalSilhouettePixelsCleared =
+    (renderer.lastNaturalSilhouettePixelsCleared or 0) + cleared
+  renderer.lastNaturalSilhouetteBillboards =
+    (renderer.lastNaturalSilhouetteBillboards or 0) + 1
   return true
 end
 
@@ -225,6 +340,8 @@ function NaturalForms.apply(renderer)
     self.lastNaturalVegetationCards = 0
     self.lastNaturalBoundaryCards = 0
     self.lastNaturalCardFallbacks = 0
+    self.lastNaturalSilhouetteBillboards = 0
+    self.lastNaturalSilhouettePixelsCleared = 0
   end
 
   local baseInvalidate = renderer.invalidate
@@ -233,35 +350,49 @@ function NaturalForms.apply(renderer)
       pcall(self.naturalFormMesh.release, self.naturalFormMesh)
     end
     self.naturalFormMesh = nil
+    if self.naturalSilhouetteCache then
+      for _, cached in pairs(self.naturalSilhouetteCache) do
+        safeRelease(cached and cached.image)
+      end
+    end
+    self.naturalSilhouetteCache = nil
     return baseInvalidate(self)
   end
 
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
-    local v = variation(cmd)
-    -- Vanilla OVERWORLD tree cells are 16x16 sprites. Give them a deliberately
-    -- vertical screen presence so the route edge reads as a forest wall rather
-    -- than the same top-down tile pasted onto the floor.
-    local ratio = ({ 1.42, 1.72, 2.02 })[proj.level] or 1.72
-    ratio = ratio * (0.96 + v * 0.07)
-    local width = ({ 0.94, 1.02, 1.08 })[proj.level] or 1.02
-    width = width * (0.97 + v * 0.05)
-    if drawTexturedCard(self, proj, cmd, ratio, width,
-                        { 0.96, 1.00, 0.94 }, 1.55) then
+    -- Preserve the canonical 16x16 Red tree silhouette instead of forcing the
+    -- source pixels through the old octagonal card. Perspective changes only
+    -- the uniform screen scale; the sprite's aspect ratio and pixel geometry
+    -- remain intact.
+    local ratio = ({ 1.28, 1.55, 1.82 })[proj.level] or 1.55
+    if drawPixelBillboard(self, proj, cmd, ratio,
+                          { 0.98, 1.00, 0.97 }) then
       self.lastNaturalVegetationCards =
         (self.lastNaturalVegetationCards or 0) + 1
       return true
     end
+
+    -- Compatibility only for test/engine surfaces that cannot expose ImageData.
+    local v = variation(cmd)
+    ratio = ratio * (0.98 + v * 0.03)
+    local width = ({ 0.94, 1.02, 1.08 })[proj.level] or 1.02
+    if drawTexturedCard(self, proj, cmd, ratio, width,
+                        { 0.96, 1.00, 0.94 }, 1.55) then
+      self.lastNaturalVegetationCards =
+        (self.lastNaturalVegetationCards or 0) + 1
+      self.lastNaturalCardFallbacks =
+        (self.lastNaturalCardFallbacks or 0) + 1
+      return true
+    end
+
     self.lastNaturalCardFallbacks = (self.lastNaturalCardFallbacks or 0) + 1
     return baseDrawVegetation(self, proj, cmd)
   end
 
   local baseDrawLowPrism = renderer.drawLowPrism
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
-    -- Only the canonical boulder motif becomes a 3D boulder. TEST6 converted
-    -- every boundary family into rocks; Pallet/Route 1 proved that many of
-    -- those cells are actually vanilla tree motifs. Unknown boundaries now
-    -- retain their conservative low-prism fallback instead of being relabelled.
+    -- Only the verified canonical boulder motif receives this 3D rock path.
     if motifForCommand(cmd) == "boulder" then
       local v = variation(cmd)
       if drawTexturedBoulder(self, proj, cmd, v) then
