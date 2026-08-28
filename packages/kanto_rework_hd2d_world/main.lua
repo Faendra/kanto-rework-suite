@@ -47,6 +47,38 @@ local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
 local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
+-- TEST1 showed that a warp adjacent to one very large connected blocked mass
+-- could promote the whole mass to a building. Keep the classifier data-driven,
+-- but require architectural masses to be compact, dense and away from map
+-- boundaries. Oversized natural masses fall back to vegetation/boundary/mass.
+local NATURAL_TILESETS = { OVERWORLD = true, FOREST = true }
+local baseClassify = MaterialClassifier.classify
+MaterialClassifier.classify = function(map, cx, cy)
+  local material = baseClassify(map, cx, cy)
+  if material.kind == "solid" and material.family == "structure" then
+    local mass = MaterialClassifier.massInfo(map, cx, cy)
+    local compact = mass
+      and not mass.touchesEdge
+      and (mass.spanX or 0) <= 10
+      and (mass.spanY or 0) <= 7
+      and (mass.size or 0) <= 64
+      and (mass.density or 0) >= 0.35
+
+    if not compact then
+      local tileset = map and map.def and map.def.tileset
+      if mass and NATURAL_TILESETS[tileset]
+         and (mass.repeatRatio or 0) >= 0.45 then
+        material.family, material.heightScale = "vegetation", 1.42
+      elseif mass and mass.touchesEdge then
+        material.family, material.heightScale = "boundary", 1.28
+      else
+        material.family, material.heightScale = "mass", 1.0
+      end
+    end
+  end
+  return material
+end
+
 local renderer = Renderer.new(Projection, MaterialClassifier)
 local relief = Relief.new(MaterialClassifier)
 local water = WaterSurface.new(MaterialClassifier)
@@ -70,6 +102,84 @@ end
 
 renderer.drawActors = function(self, ctx, proj)
   return depthComposer:draw(self, ctx, proj)
+end
+
+-- Gen1Recomp's flat path fills areas beyond an outdoor map with a border tile.
+-- Once perspective is applied that fill becomes the giant grey slabs visible in
+-- TEST1. Preserve the engine call for compatibility, then clear it before the
+-- projected source is captured and replace it with a palette-derived ground
+-- neutral. Interiors/caves retain the original Renderer path unchanged.
+local OUTDOOR_TILESETS = {
+  OVERWORLD = true,
+  FOREST = true,
+  SHIP_PORT = true,
+  PLATEAU = true,
+}
+
+local function normalizedColor(color, fallback)
+  if type(color) ~= "table" then
+    return fallback[1], fallback[2], fallback[3]
+  end
+  local r, g, b = tonumber(color[1]), tonumber(color[2]), tonumber(color[3])
+  if not r or not g or not b then
+    return fallback[1], fallback[2], fallback[3]
+  end
+  if r > 1 or g > 1 or b > 1 then
+    r, g, b = r / 255, g / 255, b / 255
+  end
+  return r, g, b
+end
+
+local function outdoorSourceColor(ctx, map)
+  local fallback = { 0.44, 0.54, 0.40 }
+  local palette = ctx.paletteFor and ctx.paletteFor(map) or nil
+  local c2 = type(palette) == "table" and (palette[2] or palette[1]) or nil
+  local c3 = type(palette) == "table" and (palette[3] or palette[2]) or nil
+  local r2, g2, b2 = normalizedColor(c2, fallback)
+  local r3, g3, b3 = normalizedColor(c3, fallback)
+  return r2 * 0.45 + r3 * 0.55,
+         g2 * 0.45 + g3 * 0.55,
+         b2 * 0.45 + b3 * 0.55
+end
+
+local baseDrawTerrainSource = renderer.drawTerrainSource
+renderer.lastOutdoorBorderSuppressed = false
+renderer.drawTerrainSource = function(self, ctx)
+  local state = ctx and ctx.state
+  local map = state and state.map
+  local tileset = map and map.def and map.def.tileset
+  if not OUTDOOR_TILESETS[tileset] then
+    self.lastOutdoorBorderSuppressed = false
+    return baseDrawTerrainSource(self, ctx)
+  end
+  if not (map and map.renderer and ctx.cam) then return false end
+
+  self.lastOutdoorBorderSuppressed = true
+  local cam = ctx.cam
+  local bgY = ctx.bgY or cam.y
+
+  -- Execute the normal border call inside the source canvas, then reset all
+  -- graphics state and erase its pixels before drawing the actual maps.
+  love.graphics.push("all")
+  love.graphics.setCanvas(self.source)
+  map.renderer:drawBorderFill(cam.x, bgY, ctx.vw, ctx.vh)
+  love.graphics.pop()
+
+  love.graphics.push("all")
+  love.graphics.setCanvas(self.source)
+  local r, g, b = outdoorSourceColor(ctx, map)
+  love.graphics.clear(r, g, b, 1)
+  love.graphics.setColor(1, 1, 1, 1)
+  map.renderer:draw(cam.x, bgY, ctx.vw, ctx.vh)
+  for _, nb in ipairs(state.neighbors or {}) do
+    if nb.map and nb.map.renderer then
+      nb.map.renderer:drawMapOnly(cam.x - (nb.ox or 0),
+                                  bgY - (nb.oy or 0), ctx.vw, ctx.vh)
+    end
+  end
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  return true
 end
 
 local function playerFocusY(canvas, ctx)
