@@ -3,6 +3,10 @@ Relief.__index = Relief
 
 local CELL = 16
 local MARGIN_CELLS = 2
+local GROUND_DONORS = {
+  { 0, 1 }, { -1, 0 }, { 1, 0 }, { 0, -1 },
+  { -1, 1 }, { 1, 1 }, { -2, 0 }, { 2, 0 }, { 0, 2 }, { 0, -2 },
+}
 
 local function clamp(v, lo, hi)
   if v < lo then return lo end
@@ -37,6 +41,7 @@ function Relief.new(MaterialClassifier)
     lastCanopies = 0,
     lastMassShadows = 0,
     lastRoofs = 0,
+    lastGroundMasks = 0,
   }, Relief)
 end
 
@@ -63,7 +68,7 @@ function Relief:resetMetrics()
   self.lastScenes, self.lastCells = 0, 0
   self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
   self.lastDoorways, self.lastEaves, self.lastCanopies = 0, 0, 0
-  self.lastMassShadows, self.lastRoofs = 0, 0
+  self.lastMassShadows, self.lastRoofs, self.lastGroundMasks = 0, 0, 0
 end
 
 local function sameMass(a, b)
@@ -104,16 +109,57 @@ local function paletteTone(host, ctx, map, fromDark, factor, alpha)
          clamp(b * factor, 0, 1), alpha or 1
 end
 
--- Vegetation's collision footprint is still a continuous mass, but presenting
--- every blocked source row as a raised slab produces a hedge/tower. Keep only
--- a low visual pedestal; the semantic height is expressed by the canopy that
--- is emitted once at the exposed front edge of that mass.
 local function geometryHeight(classifier, material, lift)
   local height = classifier.reliefHeight(material, lift)
   if material and material.family == "vegetation" then
     return height * 0.40
   end
   return height
+end
+
+local function groundDonor(classifier, map, cx, cy)
+  local grassCandidate
+  for _, d in ipairs(GROUND_DONORS) do
+    local nx, ny = cx + d[1], cy + d[2]
+    local material = classifier.classify(map, nx, ny)
+    if material.kind == "ground" then return nx, ny end
+    if not grassCandidate and material.kind == "grass" then
+      grassCandidate = { nx, ny }
+    end
+  end
+  if grassCandidate then return grassCandidate[1], grassCandidate[2] end
+  return nil
+end
+
+-- Ground projection happens before raised geometry and therefore still contains
+-- the original blocked tile art. Replace each solid footprint with a nearby
+-- traversable terrain sample at z=0 before drawing its relief. This removes the
+-- tilted duplicate house/tree tiles that otherwise remain visible underneath
+-- the reconstructed volume.
+local function drawGroundReplacement(host, ctx, proj, map, classifier, cx, cy, ox, oy)
+  local donorX, donorY = groundDonor(classifier, map, cx, cy)
+  local targetX = cx * CELL + ox
+  local targetY = cy * CELL + oy
+  local metrics = proj:cellMetrics(targetX, targetY, CELL, 0)
+
+  if donorX then
+    local sourceX = donorX * CELL + ox - proj.camX
+    local sourceY = donorY * CELL + oy - proj.bgY
+    if sourceX >= 0 and sourceY >= 0
+       and sourceX + CELL <= host.sourceW and sourceY + CELL <= host.sourceH then
+      host.cellQuad:setViewport(sourceX, sourceY, CELL, CELL,
+                                host.sourceW, host.sourceH)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(host.source, host.cellQuad, metrics.x, metrics.y,
+                         0, metrics.width / CELL, metrics.height / CELL)
+      return true
+    end
+  end
+
+  local r, g, b, a = paletteTone(host, ctx, map, 2, 0.82, 1)
+  love.graphics.setColor(r, g, b, a)
+  love.graphics.rectangle("fill", metrics.x, metrics.y, metrics.width, metrics.height)
+  return true
 end
 
 local function drawTopCell(host, proj, wx, wy, height)
@@ -306,9 +352,6 @@ local function drawVegetationCrown(host, ctx, proj, map, run)
   local z0 = run.height * 0.30
   local shoulderZ = run.height + crown * 0.20
 
-  -- A deterministic multi-lobed front silhouette removes the rectangular tree
-  -- wall without introducing authored per-map tree models. It is deliberately
-  -- asymmetric enough to read organic, while staying stable frame-to-frame.
   local points = {
     { wx0,                 z0 },
     { wx0 + width * 0.08, shoulderZ },
@@ -350,6 +393,19 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     local material = classifier.classify(map, cx, cy)
     materials[cx] = material
     if material.kind == "solid" then drawn = drawn + 1 end
+  end
+
+  -- First erase the flat source representation of every raised cell. Because
+  -- this happens in the same terrain-row painter command as the relief, actor
+  -- ordering remains coherent and connected-map offsets are preserved.
+  for gx = x0, x1 do
+    local material = materials[gx]
+    if material and material.kind == "solid" then
+      if drawGroundReplacement(host, ctx, proj, map, classifier,
+                               gx, cy, ox, oy) then
+        self.lastGroundMasks = self.lastGroundMasks + 1
+      end
+    end
   end
 
   local cx = x0
@@ -403,8 +459,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     local material = materials[sx]
     if material and material.kind == "solid"
        and classifier.sideExposed(map, sx, cy, 1) then
-      -- Interior rows of a vegetation mass no longer emit vertical slab sides;
-      -- only the exposed front row receives a small side plane beneath canopy.
       local allowSide = material.family ~= "vegetation"
                         or classifier.frontExposed(map, sx, cy)
       if allowSide then
@@ -424,8 +478,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       while runEnd + 1 <= x1 and sameMass(material, materials[runEnd + 1]) do
         runEnd = runEnd + 1
       end
-      -- Repeated vegetation source rows are represented by one canopy at the
-      -- exposed edge. Drawing every row's top texture recreated stacked tiles.
       if material.family ~= "vegetation" then
         local height = geometryHeight(classifier, material, lift)
         if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
