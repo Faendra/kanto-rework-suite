@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.2.3-cphd2d08-test5",
+  "version": "0.2.4-cphd2d09-test6",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS HD-2D TEST5: lower three-quarter diorama camera, selective vertical staging for buildings, vanilla vegetation and rock boundaries, depth-scaled pixel actors, outdoor world apron, source-textured architecture, room-like interior dollhouse shells and restrained miniature-lens lighting. Gameplay remains Gen1Recomp-authoritative."
+  "description": "KRS HD-2D TEST6: lower three-quarter diorama camera, source-textured upright natural forms for vegetation and map boundaries, seam-safe connected-map actors, depth-scaled pixel actors, outdoor world apron, source-textured architecture, room-like interior dollhouse shells and restrained miniature-lens lighting. Gameplay remains Gen1Recomp-authoritative."
 }
