@@ -292,6 +292,36 @@ assert(exports.atmosphere.lastBypassed == true,
 assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "atmosphere bypass must not retire the world pipeline")
 
+-- Simulate the minimum real-LÖVE shader contract after the fallback check.
+-- This does not validate GLSL compilation, but it does execute the successful
+-- worldPresent fold: shader uniforms, target canvas, one world-only pass and
+-- a returned replacement Canvas.
+local shaderSends = {}
+love.graphics.newShader = function()
+  return {
+    send = function(_, name, value)
+      shaderSends[name] = value
+    end,
+  }
+end
+exports.atmosphere:invalidate()
+Pipelines.setLevel("krs_hd2d_world", 2)
+Pipelines.update(0)
+local gpuPresented = Pipelines.worldPresent(rendered, {
+  width = 640, height = 576, state = state,
+})
+assert(gpuPresented ~= nil and gpuPresented ~= rendered,
+  "simulated GPU atmosphere pass did not return its target canvas")
+assert(exports.atmosphere.lastPasses == 1,
+  "simulated GPU atmosphere pass did not execute exactly once")
+assert(shaderSends.blurStrength and shaderSends.blurStrength > 0,
+  "atmosphere blur strength was not sent to the shader")
+assert(shaderSends.focusY and shaderSends.focusWidth,
+  "atmosphere focus-band uniforms were not sent to the shader")
+assert(Pipelines.worldPipeline() == "krs_hd2d_world",
+  "successful atmosphere fold must keep the world pipeline eligible")
+love.graphics.newShader = nil
+
 Pipelines.reset()
 Pipelines.install(nil)
 Loader.endSession()
