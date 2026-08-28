@@ -215,6 +215,16 @@ function love.load()
     local raw = assert(renderer:drawWorld(ctx), "renderer returned no canvas")
     saveCanvas(raw, "hd2d-visual-raw.png")
 
+    local rawPixels = raw:newImageData()
+    local skyR, skyG, skyB = rawPixels:getPixel(8, 8)
+    rawPixels:release()
+    assert(renderer.lastOutdoorBackdrop == true,
+           "OVERWORLD visual scene did not select the outdoor backdrop")
+    assert(renderer.lastBackdropBands >= 4,
+           "outdoor horizon was not rendered with multiple palette bands")
+    assert((skyR + skyG + skyB) / 3 > 0.15,
+           "outdoor horizon remained near-black in the real LÖVE render")
+
     local proj = Projection.new(ctx, 2)
     local _, playerY = proj:projectWorld(actor.px + 8, actor.py + 16, 0)
     local focusY = playerY / raw:getHeight()
