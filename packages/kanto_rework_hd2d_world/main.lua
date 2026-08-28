@@ -46,6 +46,8 @@ local LivePolish = loadLocal("hd2d.LivePolish", "hd2d/LivePolish.lua")
 local VanillaMotifs = loadLocal("hd2d.VanillaMotifs", "hd2d/VanillaMotifs.lua")
 local DioramaPolish = loadLocal("hd2d.DioramaPolish", "hd2d/DioramaPolish.lua")
 local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
+local AtlasSource = loadLocal("hd2d.AtlasSource", "hd2d/AtlasSource.lua")
+local AtlasWorld = loadLocal("hd2d.AtlasWorld", "hd2d/AtlasWorld.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
 local TerrainRemaster = loadLocal("hd2d.TerrainRemaster", "hd2d/TerrainRemaster.lua")
 local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
@@ -68,6 +70,11 @@ renderer = LivePolish.apply(renderer)
 VanillaMotifs.install(MaterialClassifier)
 renderer = DioramaPolish.apply(renderer)
 renderer = NaturalForms.apply(renderer)
+-- Gen1Recomp already keeps the exact generated 8x8 tileset atlas on each map
+-- renderer. Prefer that source over a captured flat-map framebuffer for all
+-- walkable terrain and natural scene objects. Capture remains a compatibility
+-- fallback for engines/tests that do not expose image/quads.
+renderer = AtlasWorld.apply(renderer, AtlasSource)
 renderer = SceneContinuity.apply(renderer)
 renderer = TerrainRemaster.apply(renderer)
 
@@ -105,6 +112,8 @@ mod.exports.livePolish = LivePolish
 mod.exports.vanillaMotifs = VanillaMotifs
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
+mod.exports.atlasSource = AtlasSource
+mod.exports.atlasWorld = AtlasWorld
 mod.exports.sceneContinuity = SceneContinuity
 mod.exports.terrainRemaster = TerrainRemaster
 mod.exports.atmosphere = atmosphere
