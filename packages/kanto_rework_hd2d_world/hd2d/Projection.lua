@@ -8,12 +8,9 @@ local function clamp(v, lo, hi)
 end
 
 local PRESETS = {
-  -- Deliberately restrained: the world should read as a spatial remake of
-  -- Kanto, not as a stack of cubes. Higher modes increase depth separation,
-  -- not camera rotation.
-  [1] = { compression = 0.72, near = 1.08, far = 0.91, shear = 0.045, lift = 5 },
-  [2] = { compression = 0.66, near = 1.13, far = 0.86, shear = 0.070, lift = 7 },
-  [3] = { compression = 0.61, near = 1.18, far = 0.82, shear = 0.090, lift = 9 },
+  [1] = { compression = 0.80, near = 1.06, far = 0.94, shear = 0.030, lift = 4.0 },
+  [2] = { compression = 0.76, near = 1.10, far = 0.90, shear = 0.045, lift = 5.5 },
+  [3] = { compression = 0.72, near = 1.14, far = 0.87, shear = 0.060, lift = 7.0 },
 }
 
 function Projection.new(ctx, level)
@@ -34,7 +31,7 @@ function Projection.new(ctx, level)
   self.relief = preset.lift
   self.centerX = self.width * 0.5
   local projectedH = self.vh * self.compression * self.scale
-  self.top = math.floor((self.height - projectedH) * 0.48 + 0.5)
+  self.top = math.floor((self.height - projectedH) * 0.42 + 0.5)
   return self
 end
 
@@ -69,8 +66,6 @@ function Projection:projectWorld(wx, wy, z)
 end
 
 function Projection:projectTerrain(wx, wy, z)
-  -- Terrain is rendered against bgY so elevator shake remains a BG-only
-  -- motion, matching the engine's flat path.
   return self:projectLocal(wx - self.camX, wy - self.bgY, z)
 end
 
