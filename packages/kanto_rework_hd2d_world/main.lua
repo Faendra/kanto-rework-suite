@@ -43,9 +43,11 @@ local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialCl
 local SceneRenderer = loadLocal("hd2d.SceneRenderer", "hd2d/SceneRenderer.lua")
 local SceneStyle = loadLocal("hd2d.SceneStyle", "hd2d/SceneStyle.lua")
 local LivePolish = loadLocal("hd2d.LivePolish", "hd2d/LivePolish.lua")
+local VanillaMotifs = loadLocal("hd2d.VanillaMotifs", "hd2d/VanillaMotifs.lua")
 local DioramaPolish = loadLocal("hd2d.DioramaPolish", "hd2d/DioramaPolish.lua")
 local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
+local TerrainRemaster = loadLocal("hd2d.TerrainRemaster", "hd2d/TerrainRemaster.lua")
 local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
 
 -- Keep the previous modules loadable/exported during the transition so saved
@@ -58,11 +60,17 @@ local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
 local LegacyRenderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
-local renderer = SceneContinuity.apply(
-  NaturalForms.apply(
-    DioramaPolish.apply(
-      LivePolish.apply(
-        SceneStyle.apply(SceneRenderer.new(SceneProjection, MaterialClassifier))))))
+local renderer = SceneStyle.apply(SceneRenderer.new(SceneProjection, MaterialClassifier))
+renderer = LivePolish.apply(renderer)
+-- LivePolish/SceneStyle install broad compatibility heuristics first. The
+-- canonical vanilla 2x2 tile motifs are deliberately installed afterwards so
+-- real OVERWORLD trees/boulders win over topology-only boundary guesses.
+VanillaMotifs.install(MaterialClassifier)
+renderer = DioramaPolish.apply(renderer)
+renderer = NaturalForms.apply(renderer)
+renderer = SceneContinuity.apply(renderer)
+renderer = TerrainRemaster.apply(renderer)
+
 local atmosphere = WorldAtmosphere.new()
 
 local legacyRenderer = LegacyRenderer.new(LegacyProjection, MaterialClassifier)
@@ -94,9 +102,11 @@ mod.exports.projection = SceneProjection
 mod.exports.materialClassifier = MaterialClassifier
 mod.exports.sceneStyle = SceneStyle
 mod.exports.livePolish = LivePolish
+mod.exports.vanillaMotifs = VanillaMotifs
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
 mod.exports.sceneContinuity = SceneContinuity
+mod.exports.terrainRemaster = TerrainRemaster
 mod.exports.atmosphere = atmosphere
 mod.exports.legacy = {
   renderer = legacyRenderer,
