@@ -33,6 +33,8 @@ local RELATIVE_FILES = {
   "hd2d/VanillaMotifs.lua",
   "hd2d/DioramaPolish.lua",
   "hd2d/NaturalForms.lua",
+  "hd2d/AtlasSource.lua",
+  "hd2d/AtlasWorld.lua",
   "hd2d/SceneContinuity.lua",
   "hd2d/TerrainRemaster.lua",
   "hd2d/MaterialClassifier.lua",
@@ -107,8 +109,8 @@ local exports = assert(loader.exports.kanto_rework_hd2d_world,
   "scene HD2D exports missing")
 for _, name in ipairs({
   "renderer", "projection", "materialClassifier", "sceneStyle", "livePolish",
-  "vanillaMotifs", "dioramaPolish", "naturalForms", "sceneContinuity",
-  "terrainRemaster", "atmosphere",
+  "vanillaMotifs", "dioramaPolish", "naturalForms", "atlasSource", "atlasWorld",
+  "sceneContinuity", "terrainRemaster", "atmosphere",
 }) do
   assert(type(exports[name]) == "table", name .. " export missing")
 end
@@ -137,6 +139,16 @@ local rendererStub = {
   drawMapOnly = function() drawCounts.neighbor = drawCounts.neighbor + 1 end,
   drawCellBottom = function() end,
 }
+-- Mirror the public runtime fields exposed by Gen1Recomp TileRenderer.new:
+-- `image` is the exact generated tileset atlas and `quads[tileId]` addresses
+-- its 8x8 cells. TEST8 must use these rather than needing a flat-map capture.
+rendererStub.image = love.graphics.newCanvas(128, 48)
+rendererStub.quads = {}
+for t = 0, 95 do
+  rendererStub.quads[t] = love.graphics.newQuad((t % 16) * 8,
+                                                math.floor(t / 16) * 8,
+                                                8, 8, 128, 48)
+end
 
 local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
 local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
@@ -260,6 +272,12 @@ assert(exports.renderer.lastStructures >= 1, "structure volume missing")
 assert(exports.renderer.lastVegetation >= 1, "tree motif did not emit vegetation")
 assert(exports.renderer.lastBoundaries >= 1, "boulder motif did not emit a boundary")
 assert(exports.renderer.lastActors == 1, "actor billboard missing")
+assert((exports.renderer.lastAtlasGroundCells or 0) > 0,
+  "TEST8 did not source walkable terrain directly from runtime tileset atlas")
+assert((exports.renderer.lastAtlasNaturalObjects or 0) > 0,
+  "TEST8 did not source natural object pixels directly from runtime tileset atlas")
+assert((exports.renderer.lastAtlasCellTextures or 0) > 0,
+  "TEST8 created no cached 16x16 cells from runtime 8x8 atlas tiles")
 assert((exports.renderer.lastRaisedLawnCells or 0) > 0,
   "terrain remaster did not raise lawn cells")
 assert((exports.renderer.lastPathCells or 0) > 0,
@@ -271,7 +289,7 @@ assert((exports.renderer.lastApronCells or 0) > 0,
 assert((exports.renderer.lastInteriorShellPanels or 0) == 0,
   "outdoor map incorrectly received an interior shell")
 assert(drawCounts.current >= 2 and drawCounts.neighbor >= 1,
-  "terrain capture did not include current and connected maps")
+  "compatibility capture did not include current and connected maps")
 assert(drawCounts.fx == 1 and exports.renderer.lastFx == 1,
   "field FX bridge did not run through remastered surface projection")
 
@@ -293,6 +311,7 @@ function interiorMap:isWarpTileCell() return false end
 function interiorMap:warpAtCell() return nil end
 function interiorMap:isWalkableCell() return true end
 function interiorMap:cellTile() return 0x01 end
+function interiorMap:tileAt() return 0x01 end
 function interiorMap:blockAt() return 0x01 end
 
 local interiorState = {
