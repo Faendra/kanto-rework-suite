@@ -1,6 +1,12 @@
 local SceneStyle = {}
 
 local CELL = 16
+local CROWN_UV = {
+  { 0.18, 0.00 }, { 0.82, 0.00 },
+  { 1.00, 0.20 }, { 1.00, 0.80 },
+  { 0.82, 1.00 }, { 0.18, 1.00 },
+  { 0.00, 0.80 }, { 0.00, 0.20 },
+}
 
 local C = {
   wall = { 0.76, 0.76, 0.69 },
@@ -143,31 +149,42 @@ local function pixelCrown(cx, cy, w, h, color, alpha)
   drawPoly(crownPoints(cx, cy, w, h))
 end
 
+local function ensureCrownMesh(renderer)
+  if renderer.crownMesh then return renderer.crownMesh end
+  if not (love.graphics.newMesh and renderer.source) then return nil end
+  local seed = {}
+  for i = 1, 8 do
+    seed[i] = { 0, 0, 0, 0, 1, 1, 1, 1 }
+  end
+  local ok, mesh = pcall(love.graphics.newMesh, seed, "fan", "dynamic")
+  if not ok or not mesh then return nil end
+  renderer.crownMesh = mesh
+  return mesh
+end
+
 local function texturedCrown(renderer, cx, cy, w, h, rect)
-  if not (rect and love.graphics.stencil and love.graphics.setStencilTest) then
-    return false
-  end
+  local mesh = rect and ensureCrownMesh(renderer) or nil
+  if not (mesh and mesh.setVertices and mesh.setTexture) then return false end
   local crown = crownPoints(cx, cy, w, h)
-  local quad = {
-    cx - w * 0.5, cy - h * 0.5,
-    cx + w * 0.5, cy - h * 0.5,
-    cx + w * 0.5, cy + h * 0.5,
-    cx - w * 0.5, cy + h * 0.5,
-  }
-  local textured = false
-  local ok = pcall(function()
-    love.graphics.stencil(function()
-      love.graphics.polygon("fill", crown)
-    end, "replace", 1)
-    love.graphics.setStencilTest("greater", 0)
-    textured = texturedFace(renderer, quad, rect, { 0.98, 1.00, 0.96 }, 1)
-    love.graphics.setStencilTest()
-  end)
-  if not ok then
-    pcall(love.graphics.setStencilTest)
-    return false
+  local sx, sy, sw, sh = rect[1], rect[2], rect[3], rect[4]
+  local vertices = {}
+  for i = 1, 8 do
+    local uv = CROWN_UV[i]
+    vertices[i] = {
+      crown[i * 2 - 1], crown[i * 2],
+      (sx + uv[1] * sw) / renderer.sourceW,
+      (sy + uv[2] * sh) / renderer.sourceH,
+      1, 1, 1, 1,
+    }
   end
-  return textured
+  local ok = pcall(function()
+    mesh:setVertices(vertices)
+    mesh:setTexture(renderer.source)
+  end)
+  if not ok then return false end
+  setColor({ 0.98, 1.00, 0.96 }, 1)
+  love.graphics.draw(mesh)
+  return true
 end
 
 local function installConservativeNaturalSemantics(classifier)
@@ -178,10 +195,6 @@ local function installConservativeNaturalSemantics(classifier)
     local material = baseClassify(map, cx, cy)
     if material.kind == "solid" and material.family == "vegetation" then
       local mass = classifier.massInfo(map, cx, cy)
-      -- TEST2's live Pallet capture proves that a repeated edge collision mass
-      -- can be rock/border scenery. Until Gen1 exposes explicit vegetation
-      -- metadata, edge-touching masses stay textured low relief; only repeated
-      -- interior masses become upright vegetation silhouettes.
       if mass and mass.touchesEdge then
         material.family = "boundary"
         material.heightScale = 1.18
@@ -195,6 +208,21 @@ function SceneStyle.apply(renderer)
   if not renderer or renderer.__sceneStyleApplied then return renderer end
   renderer.__sceneStyleApplied = true
   installConservativeNaturalSemantics(renderer.MaterialClassifier)
+
+  local baseResetMetrics = renderer.resetMetrics
+  renderer.resetMetrics = function(self)
+    baseResetMetrics(self)
+    self.lastTexturedVegetation = 0
+  end
+
+  local baseInvalidate = renderer.invalidate
+  renderer.invalidate = function(self)
+    if self.crownMesh and self.crownMesh.release then
+      pcall(self.crownMesh.release, self.crownMesh)
+    end
+    self.crownMesh = nil
+    return baseInvalidate(self)
+  end
 
   renderer.drawStructure = function(self, proj, cmd)
     local mass = cmd.mass
@@ -306,8 +334,10 @@ function SceneStyle.apply(renderer)
 
     pixelCrown(c1x - proj.tileW * 0.06, c1y + proj.tileW * 0.015,
                proj.tileW * 0.66, proj.tileW * 0.35, C.leafDark, 1)
-    if not texturedCrown(self, c2x + proj.tileW * 0.035, c2y,
-                         proj.tileW * 0.72, proj.tileW * 0.43, ownRect) then
+    if texturedCrown(self, c2x + proj.tileW * 0.035, c2y,
+                     proj.tileW * 0.72, proj.tileW * 0.43, ownRect) then
+      self.lastTexturedVegetation = (self.lastTexturedVegetation or 0) + 1
+    else
       pixelCrown(c2x + proj.tileW * 0.035, c2y,
                  proj.tileW * 0.72, proj.tileW * 0.43, C.leaf, 1)
     end
