@@ -131,7 +131,7 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
 -- projection, semantic relief, connected-neighbour capture, recessed water,
--- actor/terrain depth composition and grass foreground priority.
+-- actor/terrain depth composition, warp-derived facade cues and grass priority.
 local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
@@ -148,6 +148,11 @@ local map = {
   inBounds = function(_, x, y) return x >= 0 and y >= 0 and x < 8 and y < 8 end,
   isWaterCell = function(_, x, y) return y == 7 end,
   isGrassCell = function(_, x, y) return y == 5 and x >= 2 and x <= 4 end,
+  isWarpTileCell = function(_, x, y) return x == 3 and y == 4 end,
+  warpAtCell = function(_, x, y)
+    if x == 3 and y == 4 then return { index = 1 } end
+    return nil
+  end,
   isWalkableCell = function(_, x, y)
     if y == 7 then return false end
     return not (y == 3 and x >= 2 and x <= 4)
@@ -162,6 +167,8 @@ local neighborMap = {
   inBounds = function(_, x, y) return x >= 0 and y >= 0 and x < 8 and y < 8 end,
   isWaterCell = function() return false end,
   isGrassCell = function(_, x, y) return y == 4 and x >= 1 and x <= 3 end,
+  isWarpTileCell = function() return false end,
+  warpAtCell = function() return nil end,
   isWalkableCell = function(_, x, y)
     return not (x == 1 and y == 3)
   end,
@@ -220,6 +227,8 @@ assert(exports.relief.lastTopRuns > 0,
   "continuous semantic top-surface pass did not draw any runs")
 assert(exports.relief.lastTopRuns < exports.relief.lastCells,
   "contiguous raised cells were not merged into wider top-surface runs")
+assert(exports.relief.lastDoorways >= 1,
+  "real warp threshold did not produce a structure facade opening")
 assert(exports.water.lastCells >= 8,
   "recessed water pass did not classify the synthetic water body")
 assert(exports.water.lastRuns >= 1,
