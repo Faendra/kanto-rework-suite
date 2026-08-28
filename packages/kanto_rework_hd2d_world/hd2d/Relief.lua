@@ -13,6 +13,8 @@ function Relief.new(MaterialClassifier)
     lastFrontRuns = 0,
     lastSideFaces = 0,
     lastDoorways = 0,
+    lastEaves = 0,
+    lastCanopies = 0,
   }, Relief)
 end
 
@@ -38,7 +40,7 @@ end
 function Relief:resetMetrics()
   self.lastScenes, self.lastCells = 0, 0
   self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
-  self.lastDoorways = 0
+  self.lastDoorways, self.lastEaves, self.lastCanopies = 0, 0, 0
 end
 
 local function sameMass(a, b)
@@ -50,6 +52,7 @@ end
 local function faceFactors(material)
   local family = material and material.family or "mass"
   if family == "structure" then return 0.74, 0.58 end
+  if family == "vegetation" then return 0.54, 0.43 end
   if family == "boundary" then return 0.62, 0.49 end
   if family == "landmark" then return 0.69, 0.53 end
   if family == "obstacle" then return 0.77, 0.62 end
@@ -70,16 +73,13 @@ local function drawTopCell(host, proj, wx, wy, height)
   return true
 end
 
-local function drawTopRun(host, proj, wx, wy, cells, height)
+local function drawTexturedRun(host, proj, wx, wy, cells, height,
+                               widthScale, heightScale, alpha)
   local runW = cells * CELL
   local sx = wx - proj.camX
   local sy = wy - proj.bgY
   if sx < 0 or sy < 0 or sx + runW > host.sourceW or sy + CELL > host.sourceH then
-    local any = false
-    for i = 0, cells - 1 do
-      any = drawTopCell(host, proj, wx + i * CELL, wy, height) or any
-    end
-    return any
+    return false
   end
 
   host.cellQuad:setViewport(sx, sy, runW, CELL, host.sourceW, host.sourceH)
@@ -87,14 +87,26 @@ local function drawTopRun(host, proj, wx, wy, cells, height)
   local depth = proj:depthScale(localY)
   local centerX, centerY = proj:projectTerrain(wx + runW * 0.5,
                                                wy + CELL * 0.5, height)
-  local screenW = runW * depth * proj.scale
-  local screenH = CELL * proj.compression * proj.scale
-  love.graphics.setColor(1, 1, 1, 1)
+  local screenW = runW * depth * proj.scale * (widthScale or 1)
+  local screenH = CELL * proj.compression * proj.scale * (heightScale or 1)
+  love.graphics.setColor(1, 1, 1, alpha or 1)
   love.graphics.draw(host.source, host.cellQuad,
                      centerX - screenW * 0.5,
                      centerY - screenH * 0.5,
                      0, screenW / runW, screenH / CELL)
   return true
+end
+
+local function drawTopRun(host, proj, wx, wy, cells, height)
+  if drawTexturedRun(host, proj, wx, wy, cells, height, 1, 1, 1) then
+    return true
+  end
+
+  local any = false
+  for i = 0, cells - 1 do
+    any = drawTopCell(host, proj, wx + i * CELL, wy, height) or any
+  end
+  return any
 end
 
 local function drawFrontRun(host, ctx, proj, map, material, wx0, wx1, wy, height)
@@ -148,6 +160,56 @@ local function drawDoorway(host, ctx, proj, map, cx, cy, ox, oy, height)
   love.graphics.polygon("fill", ltax, ltay, ltbx, ltby, lbbx, lbby, lbax, lbay)
 end
 
+local function drawStructureEave(host, ctx, proj, map, run)
+  local overhang = CELL * 0.10
+  local thickness = math.max(0.85, proj.relief * 0.13)
+  local wx0 = run.wx0 - overhang
+  local wx1 = run.wx1 + overhang
+  local wy = run.wy + CELL * 0.025
+  local z0 = math.max(0, run.height - thickness * 0.30)
+  local z1 = run.height + thickness
+
+  -- A continuous overhanging band gives the facade one architectural break.
+  -- It follows the inferred structure frontage, not individual source cells.
+  local r, g, b, a = host:paletteWallColor(ctx, map, 0.94, 0.43)
+  local ax, ay = proj:projectTerrain(wx0, wy, z0)
+  local bx, by = proj:projectTerrain(wx1, wy, z0)
+  local tax, tay = proj:projectTerrain(wx0, wy, z1)
+  local tbx, tby = proj:projectTerrain(wx1, wy, z1)
+  love.graphics.setColor(r, g, b, a)
+  love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+
+  local cells = math.max(1, math.floor((run.wx1 - run.wx0) / CELL + 0.5))
+  drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
+                  z1 + thickness * 0.18, 1.07, 0.24, 0.96)
+end
+
+local function drawVegetationCrown(host, ctx, proj, map, run)
+  local overhang = CELL * 0.16
+  local crown = math.max(2.3, proj.relief * 0.34)
+  local wx0 = run.wx0 - overhang
+  local wx1 = run.wx1 + overhang
+  local wy = run.wy + CELL * 0.035
+  local z0 = run.height * 0.73
+  local z1 = run.height + crown * 0.56
+
+  -- Dark continuous canopy apron: this hides the flat wall reading while the
+  -- pixel-derived crown layers above retain Kanto's original colour breakup.
+  local r, g, b, a = host:paletteWallColor(ctx, map, 0.88, 0.48)
+  local ax, ay = proj:projectTerrain(wx0, wy, z0)
+  local bx, by = proj:projectTerrain(wx1, wy, z0)
+  local tax, tay = proj:projectTerrain(wx0, wy, z1)
+  local tbx, tby = proj:projectTerrain(wx1, wy, z1)
+  love.graphics.setColor(r, g, b, a)
+  love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
+
+  local cells = math.max(1, math.floor((run.wx1 - run.wx0) / CELL + 0.5))
+  drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
+                  run.height + crown * 0.62, 1.10, 0.72, 0.97)
+  drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
+                  run.height + crown, 1.02, 0.47, 0.92)
+end
+
 -- Draw one terrain depth row. Keeping this independently callable allows the
 -- depth composer to interleave raised world masses with actor billboards using
 -- their common baseline-Y order instead of forcing all terrain behind actors.
@@ -158,6 +220,7 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
   local lift = proj.relief
   local drawn = 0
   local materials = {}
+  local frontRuns = {}
 
   for cx = x0, x1 do
     local material = classifier.classify(map, cx, cy)
@@ -180,9 +243,19 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       end
       local height = classifier.reliefHeight(material, lift)
       local wy = (cy + 1) * CELL + oy
+      local run = {
+        material = material,
+        startX = runStart,
+        endX = runEnd,
+        wx0 = runStart * CELL + ox,
+        wx1 = (runEnd + 1) * CELL + ox,
+        sourceY = cy * CELL + oy,
+        wy = wy,
+        height = height,
+      }
       drawFrontRun(host, ctx, proj, map, material,
-                   runStart * CELL + ox, (runEnd + 1) * CELL + ox,
-                   wy, height)
+                   run.wx0, run.wx1, wy, height)
+      frontRuns[#frontRuns + 1] = run
       self.lastFrontRuns = self.lastFrontRuns + 1
       cx = runEnd + 1
     else
@@ -232,6 +305,20 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       cx = runEnd + 1
     else
       cx = cx + 1
+    end
+  end
+
+  -- Semantic silhouette pass. The base footprint and collision are untouched;
+  -- these cues exist only above the inferred front edge and therefore improve
+  -- recognition without manufacturing traversal geometry.
+  for _, run in ipairs(frontRuns) do
+    local family = run.material.family
+    if family == "structure" then
+      drawStructureEave(host, ctx, proj, map, run)
+      self.lastEaves = self.lastEaves + 1
+    elseif family == "vegetation" then
+      drawVegetationCrown(host, ctx, proj, map, run)
+      self.lastCanopies = self.lastCanopies + 1
     end
   end
 
