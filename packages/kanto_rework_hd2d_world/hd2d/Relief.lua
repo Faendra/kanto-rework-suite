@@ -30,6 +30,15 @@ local function visibleCellRange(map, proj, ox, oy)
   return x0, y0, x1, y1
 end
 
+function Relief:visibleCellRange(map, proj, ox, oy)
+  return visibleCellRange(map, proj, ox, oy)
+end
+
+function Relief:resetMetrics()
+  self.lastScenes, self.lastCells = 0, 0
+  self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
+end
+
 local function sameMass(a, b)
   if not (a and b and a.kind == "solid" and b.kind == "solid") then return false end
   if a.massId ~= nil or b.massId ~= nil then return a.massId == b.massId end
@@ -64,8 +73,6 @@ local function drawTopRun(host, proj, wx, wy, cells, height)
   local sx = wx - proj.camX
   local sy = wy - proj.bgY
   if sx < 0 or sy < 0 or sx + runW > host.sourceW or sy + CELL > host.sourceH then
-    -- Camera-edge clipping must not stretch a partial texture across a whole
-    -- mass. Fall back to complete source cells only for that clipped run.
     local any = false
     for i = 0, cells - 1 do
       any = drawTopCell(host, proj, wx + i * CELL, wy, height) or any
@@ -110,6 +117,84 @@ local function drawSideFace(host, ctx, proj, map, material, wx, wy, height)
   love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
 end
 
+-- Draw one terrain depth row. Keeping this independently callable allows the
+-- depth composer to interleave raised world masses with actor billboards using
+-- their common baseline-Y order instead of forcing all terrain behind actors.
+function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
+  if not (host and host.source and host.cellQuad and map) then return 0 end
+  ox, oy = ox or 0, oy or 0
+  local classifier = self.MaterialClassifier
+  local lift = proj.relief
+  local drawn = 0
+  local materials = {}
+
+  for cx = x0, x1 do
+    local material = classifier.classify(map, cx, cy)
+    materials[cx] = material
+    if material.kind == "solid" then drawn = drawn + 1 end
+  end
+
+  -- Front walls: merge adjacent exposed edges belonging to one mass.
+  local cx = x0
+  while cx <= x1 do
+    local material = materials[cx]
+    if material and material.kind == "solid"
+       and classifier.frontExposed(map, cx, cy) then
+      local runStart, runEnd = cx, cx
+      while runEnd + 1 <= x1 do
+        local nextMat = materials[runEnd + 1]
+        if not sameMass(material, nextMat)
+           or not classifier.frontExposed(map, runEnd + 1, cy) then break end
+        runEnd = runEnd + 1
+      end
+      local height = classifier.reliefHeight(material, lift)
+      local wy = (cy + 1) * CELL + oy
+      drawFrontRun(host, ctx, proj, map, material,
+                   runStart * CELL + ox, (runEnd + 1) * CELL + ox,
+                   wy, height)
+      self.lastFrontRuns = self.lastFrontRuns + 1
+      cx = runEnd + 1
+    else
+      cx = cx + 1
+    end
+  end
+
+  for sx = x0, x1 do
+    local material = materials[sx]
+    if material and material.kind == "solid"
+       and classifier.sideExposed(map, sx, cy, 1) then
+      local height = classifier.reliefHeight(material, lift)
+      drawSideFace(host, ctx, proj, map, material,
+                   sx * CELL + ox, cy * CELL + oy, height)
+      self.lastSideFaces = self.lastSideFaces + 1
+    end
+  end
+
+  -- Top surfaces: merge each horizontal span from the same connected mass.
+  cx = x0
+  while cx <= x1 do
+    local material = materials[cx]
+    if material and material.kind == "solid" then
+      local runStart, runEnd = cx, cx
+      while runEnd + 1 <= x1 and sameMass(material, materials[runEnd + 1]) do
+        runEnd = runEnd + 1
+      end
+      local height = classifier.reliefHeight(material, lift)
+      if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
+                    runEnd - runStart + 1, height) then
+        self.lastTopRuns = self.lastTopRuns + 1
+      end
+      cx = runEnd + 1
+    else
+      cx = cx + 1
+    end
+  end
+
+  self.lastCells = self.lastCells + drawn
+  love.graphics.setColor(1, 1, 1, 1)
+  return drawn
+end
+
 function Relief:drawScene(host, ctx, proj, map, ox, oy)
   if not (host and host.source and host.cellQuad and map) then return 0 end
   if not (map.widthCells and map.heightCells) then return 0 end
@@ -117,84 +202,13 @@ function Relief:drawScene(host, ctx, proj, map, ox, oy)
   ox, oy = ox or 0, oy or 0
   local x0, y0, x1, y1 = visibleCellRange(map, proj, ox, oy)
   if x1 < x0 or y1 < y0 then return 0 end
+  self.lastScenes = self.lastScenes + 1
 
-  local classifier = self.MaterialClassifier
-  local lift = proj.relief
-  local drawn = 0
-
-  -- Painter order remains far -> near by source row. Within each row,
-  -- contiguous cells from the same semantic mass share one top texture run
-  -- and one front wall run. The 16x16 collision cell is therefore no longer
-  -- the visible unit of facade geometry.
+  local before = self.lastCells
   for cy = y0, y1 do
-    local materials = {}
-    for cx = x0, x1 do
-      local material = classifier.classify(map, cx, cy)
-      materials[cx] = material
-      if material.kind == "solid" then drawn = drawn + 1 end
-    end
-
-    -- Front walls: merge adjacent exposed edges belonging to one mass.
-    local cx = x0
-    while cx <= x1 do
-      local material = materials[cx]
-      if material and material.kind == "solid"
-         and classifier.frontExposed(map, cx, cy) then
-        local runStart, runEnd = cx, cx
-        while runEnd + 1 <= x1 do
-          local nextMat = materials[runEnd + 1]
-          if not sameMass(material, nextMat)
-             or not classifier.frontExposed(map, runEnd + 1, cy) then break end
-          runEnd = runEnd + 1
-        end
-        local height = classifier.reliefHeight(material, lift)
-        local wy = (cy + 1) * CELL + oy
-        drawFrontRun(host, ctx, proj, map, material,
-                     runStart * CELL + ox, (runEnd + 1) * CELL + ox,
-                     wy, height)
-        self.lastFrontRuns = self.lastFrontRuns + 1
-        cx = runEnd + 1
-      else
-        cx = cx + 1
-      end
-    end
-
-    -- Right/east faces remain cell-segmented because depth changes along Y;
-    -- their internal edges are not drawn and the fill is identical per mass.
-    for sx = x0, x1 do
-      local material = materials[sx]
-      if material and material.kind == "solid"
-         and classifier.sideExposed(map, sx, cy, 1) then
-        local height = classifier.reliefHeight(material, lift)
-        drawSideFace(host, ctx, proj, map, material,
-                     sx * CELL + ox, cy * CELL + oy, height)
-        self.lastSideFaces = self.lastSideFaces + 1
-      end
-    end
-
-    -- Top surfaces: merge each horizontal span from the same connected mass.
-    cx = x0
-    while cx <= x1 do
-      local material = materials[cx]
-      if material and material.kind == "solid" then
-        local runStart, runEnd = cx, cx
-        while runEnd + 1 <= x1 and sameMass(material, materials[runEnd + 1]) do
-          runEnd = runEnd + 1
-        end
-        local height = classifier.reliefHeight(material, lift)
-        if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
-                      runEnd - runStart + 1, height) then
-          self.lastTopRuns = self.lastTopRuns + 1
-        end
-        cx = runEnd + 1
-      else
-        cx = cx + 1
-      end
-    end
+    self:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
   end
-
-  love.graphics.setColor(1, 1, 1, 1)
-  return drawn
+  return self.lastCells - before
 end
 
 function Relief:draw(host, ctx, proj)
@@ -202,16 +216,11 @@ function Relief:draw(host, ctx, proj)
   local map = state and state.map
   if not map then return 0 end
 
-  self.lastScenes, self.lastCells = 0, 0
-  self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
-  self.lastScenes = self.lastScenes + 1
-  self.lastCells = self.lastCells + self:drawScene(host, ctx, proj, map, 0, 0)
-
+  self:resetMetrics()
+  self:drawScene(host, ctx, proj, map, 0, 0)
   for _, nb in ipairs(state.neighbors or {}) do
     if nb.map then
-      self.lastScenes = self.lastScenes + 1
-      self.lastCells = self.lastCells
-        + self:drawScene(host, ctx, proj, nb.map, nb.ox or 0, nb.oy or 0)
+      self:drawScene(host, ctx, proj, nb.map, nb.ox or 0, nb.oy or 0)
     end
   end
   return self.lastCells
