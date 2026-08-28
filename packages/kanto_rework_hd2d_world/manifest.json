@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.2.5-cphd2d10-test7",
+  "version": "0.2.6-cphd2d11-test8",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS HD-2D TEST7: exact vanilla OVERWORLD motif recognition for trees, boulders, lawn and paths; raised lawn/path terrain staging with visible edge relief; tall source-textured tree silhouettes; canonical 3D boulders; perspective actors; outdoor continuity; source-textured architecture and interior dollhouse shells. Gameplay remains Gen1Recomp-authoritative."
+  "description": "KRS HD-2D TEST8: direct runtime-atlas world reconstruction without flattened map capture; verified Pokémon Red OVERWORLD tree/boulder motifs; aspect-preserving masked pixel tree billboards; direct-atlas terrain, natural objects and structure regions; perspective actors, outdoor continuity, volumetric architecture and interior dollhouse shells. Gameplay remains Gen1Recomp-authoritative."
 }
