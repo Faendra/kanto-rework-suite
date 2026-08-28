@@ -47,6 +47,7 @@ local Relief = loadLocal("hd2d.Relief", "hd2d/Relief.lua")
 local WaterSurface = loadLocal("hd2d.WaterSurface", "hd2d/WaterSurface.lua")
 local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
+local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
 local Renderer = loadLocal("hd2d.Renderer", "hd2d/Renderer.lua")
 
 local renderer = Renderer.new(Projection, MaterialClassifier)
@@ -54,6 +55,7 @@ local relief = Relief.new(MaterialClassifier)
 local water = WaterSurface.new(MaterialClassifier)
 local occlusion = Occlusion.new()
 local depthComposer = DepthComposer.new(relief, occlusion, WaterSurface)
+local atmosphere = WorldAtmosphere.new()
 
 -- Raised terrain and upright actors must share one painter order. Suppress the
 -- renderer's old terrain-first pass; DepthComposer emits both row geometry and
@@ -88,6 +90,7 @@ mod.exports.relief = relief
 mod.exports.water = water
 mod.exports.occlusion = occlusion
 mod.exports.depthComposer = depthComposer
+mod.exports.atmosphere = atmosphere
 
 mod.content.render_pipelines:register("krs_hd2d_world", {
   label = "KRS HD2D WORLD",
@@ -103,8 +106,14 @@ mod.content.render_pipelines:register("krs_hd2d_world", {
   drawWorld = function(ctx)
     return renderer:drawWorld(ctx)
   end,
+  -- World-only atmosphere deliberately happens before Gen1Recomp composites
+  -- dialog boxes/menus, so the HD-2D focus treatment never softens UI text.
+  worldPresent = function(canvas, ctx)
+    return atmosphere:present(canvas, ctx, renderer.level)
+  end,
   invalidate = function()
     renderer:invalidate()
+    atmosphere:invalidate()
     MaterialClassifier.invalidate()
     occlusion:invalidate()
   end,
