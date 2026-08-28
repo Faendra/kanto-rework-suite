@@ -128,3 +128,48 @@ jobs:
             hd2d-visual-depth.png
           if-no-files-found: warn
           retention-days: 7
+
+  package-live-test:
+    name: Package validated live test build
+    needs: [syntax-contracts, gen1recomp-loader, love-shader]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout validated KRS head
+        uses: actions/checkout@v4
+
+      - name: Verify live-test manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('packages/kanto_rework_hd2d_world/manifest.json')
+          data = json.loads(p.read_text(encoding='utf-8'))
+          assert data['id'] == 'kanto_rework_hd2d_world'
+          assert data['version'] == '0.1.0-cphd2d03-test1'
+          PY
+
+      - name: Build installable test archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd packages
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d03-test1.zip \
+            kanto_rework_hd2d_world \
+            -x '*/.DS_Store' '*/Thumbs.db'
+          cd ..
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d03-test1.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d03-test1.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d03-test1.zip
+
+      - name: Upload live test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-live-test-build
+          path: |
+            dist/kanto_rework_hd2d_world-cphd2d03-test1.zip
+            dist/kanto_rework_hd2d_world-cphd2d03-test1.sha256
+          if-no-files-found: error
+          retention-days: 14
