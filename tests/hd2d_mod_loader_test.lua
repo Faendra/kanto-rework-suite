@@ -40,6 +40,7 @@ local RELATIVE_FILES = {
   "hd2d/WaterSurface.lua",
   "hd2d/Occlusion.lua",
   "hd2d/DepthComposer.lua",
+  "hd2d/WorldAtmosphere.lua",
   "hd2d/Renderer.lua",
 }
 
@@ -110,6 +111,7 @@ assert(type(exports.relief) == "table", "relief export missing")
 assert(type(exports.water) == "table", "water export missing")
 assert(type(exports.occlusion) == "table", "occlusion export missing")
 assert(type(exports.depthComposer) == "table", "depth composer export missing")
+assert(type(exports.atmosphere) == "table", "world atmosphere export missing")
 
 Pipelines.install(data)
 local found
@@ -120,6 +122,7 @@ assert(found, "krs_hd2d_world render pipeline was not registered")
 assert(found.def and found.def.label == "KRS HD2D WORLD", "unexpected pipeline label")
 
 Pipelines.setLevel("krs_hd2d_world", 1)
+Pipelines.update(0)
 assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "enabled HD2D pipeline was not eligible")
 local noWorld = Pipelines.drawWorld("krs_hd2d_world", {
@@ -275,6 +278,19 @@ assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute"
 assert(exports.occlusion.overlays >= 1,
   "tall-grass overlay was not composited at actor painter depth")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
+
+-- Upstream's headless LOVE stub intentionally exposes no shader compiler. The
+-- worldPresent hook must therefore return the valid geometry canvas untouched,
+-- not retire the pipeline or make atmosphere a hard dependency.
+local presented = Pipelines.worldPresent(rendered, {
+  width = 640, height = 576, state = state,
+})
+assert(presented == rendered,
+  "headless world atmosphere fallback should preserve the geometry canvas")
+assert(exports.atmosphere.lastBypassed == true,
+  "unsupported/headless atmosphere path did not report a clean bypass")
+assert(Pipelines.worldPipeline() == "krs_hd2d_world",
+  "atmosphere bypass must not retire the world pipeline")
 
 Pipelines.reset()
 Pipelines.install(nil)
