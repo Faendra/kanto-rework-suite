@@ -14,7 +14,7 @@ on:
       - 'tests/love_hd2d_natural_forms_gate/**'
       - 'tests/love_hd2d_scene_gate/**'
       - 'tests/love_hd2d_test5_scene_gate/**'
-      - 'tests/love_hd2d_test6_scene_gate/**'
+      - 'tests/love_hd2d_test7_scene_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
   workflow_dispatch:
 
@@ -49,7 +49,7 @@ jobs:
           luac5.1 -p tests/love_hd2d_natural_forms_gate/main.lua
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
-          luac5.1 -p tests/love_hd2d_test6_scene_gate/main.lua
+          luac5.1 -p tests/love_hd2d_test7_scene_gate/main.lua
 
       - name: Validate manifest JSON
         run: python3 -m json.tool packages/kanto_rework_hd2d_world/manifest.json >/dev/null
@@ -129,7 +129,7 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate \
             2>&1 | tee hd2d-love-live-polish.log
 
-      - name: Require natural pixel cards and seam-safe actors
+      - name: Require vanilla-aware natural forms and seam-safe actors
         shell: bash
         run: |
           set -euo pipefail
@@ -141,21 +141,21 @@ jobs:
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-natural-forms.png
 
-      - name: Render full TEST6 natural-form route
+      - name: Render full TEST7 vanilla terrain-remaster route
         shell: bash
         run: |
           set -euo pipefail
           KRS_ROOT="$GITHUB_WORKSPACE" \
-            timeout 30s xvfb-run -a love tests/love_hd2d_test6_scene_gate \
-            2>&1 | tee hd2d-love-test6.log
+            timeout 30s xvfb-run -a love tests/love_hd2d_test7_scene_gate \
+            2>&1 | tee hd2d-love-test7.log
           find "$HOME/.local/share/love" -type f \
-            \( -name 'hd2d-test6-route-raw.png' \
-            -o -name 'hd2d-test6-route-depth.png' \) \
+            \( -name 'hd2d-test7-route-raw.png' \
+            -o -name 'hd2d-test7-route-depth.png' \) \
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
-          test -s hd2d-test6-route-raw.png
-          test -s hd2d-test6-route-depth.png
+          test -s hd2d-test7-route-raw.png
+          test -s hd2d-test7-route-depth.png
 
-      - name: Render TEST5 outdoor and interior dioramas
+      - name: Render TEST5 interior regression diorama
         shell: bash
         run: |
           set -euo pipefail
@@ -168,12 +168,10 @@ jobs:
             -o -name 'hd2d-test5-interior-raw.png' \
             -o -name 'hd2d-test5-interior-depth.png' \) \
             -exec cp '{}' "$GITHUB_WORKSPACE/" \;
-          test -s hd2d-test5-outdoor-raw.png
-          test -s hd2d-test5-outdoor-depth.png
           test -s hd2d-test5-interior-raw.png
           test -s hd2d-test5-interior-depth.png
 
-      - name: Render true synthetic diorama on real LÖVE
+      - name: Render base synthetic diorama regression
         shell: bash
         run: |
           set -euo pipefail
@@ -190,18 +188,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-scene-visual-gate
+          name: chatgpt-hd2d-test7-visual-gate
           path: |
             hd2d-love-shader.log
             hd2d-love-style.log
             hd2d-love-live-polish.log
             hd2d-love-natural-forms.log
-            hd2d-love-test6.log
+            hd2d-love-test7.log
             hd2d-love-test5.log
             hd2d-love-scene.log
             hd2d-natural-forms.png
-            hd2d-test6-route-raw.png
-            hd2d-test6-route-depth.png
+            hd2d-test7-route-raw.png
+            hd2d-test7-route-depth.png
             hd2d-scene-raw.png
             hd2d-scene-depth.png
             hd2d-test5-outdoor-raw.png
@@ -212,14 +210,14 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    name: Package validated TEST6 build
+    name: Package validated TEST7 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
 
-      - name: Verify TEST6 manifest
+      - name: Verify TEST7 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -229,29 +227,29 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.4-cphd2d09-test6'
+          assert data['version'] == '0.2.5-cphd2d10-test7'
           PY
 
-      - name: Build installable TEST6 archive
+      - name: Build installable TEST7 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d09-test6.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d10-test7.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d09-test6.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d09-test6.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d09-test6.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d10-test7.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d10-test7.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d10-test7.zip
 
-      - name: Upload TEST6 build
+      - name: Upload TEST7 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test6-build
+          name: chatgpt-hd2d-test7-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d09-test6.zip
-            dist/kanto_rework_hd2d_world-cphd2d09-test6.sha256
+            dist/kanto_rework_hd2d_world-cphd2d10-test7.zip
+            dist/kanto_rework_hd2d_world-cphd2d10-test7.sha256
           if-no-files-found: error
           retention-days: 14
