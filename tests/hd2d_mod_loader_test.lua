@@ -36,6 +36,7 @@ local RELATIVE_FILES = {
   "main.lua",
   "hd2d/Projection.lua",
   "hd2d/MaterialClassifier.lua",
+  "hd2d/Relief.lua",
   "hd2d/Occlusion.lua",
   "hd2d/Renderer.lua",
 }
@@ -103,6 +104,7 @@ local exports = assert(loader.exports.kanto_rework_hd2d_world,
 assert(type(exports.renderer) == "table", "renderer export missing")
 assert(type(exports.projection) == "table", "projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
+assert(type(exports.relief) == "table", "relief export missing")
 assert(type(exports.occlusion) == "table", "occlusion export missing")
 
 Pipelines.install(data)
@@ -147,7 +149,20 @@ local map = {
     return not (x == 3 and y == 3)
   end,
 }
-local neighborMap = { renderer = rendererStub }
+
+local neighborMap = {
+  id = "ROUTE_1",
+  widthCells = 8,
+  heightCells = 8,
+  renderer = rendererStub,
+  inBounds = function(_, x, y) return x >= 0 and y >= 0 and x < 8 and y < 8 end,
+  isWaterCell = function() return false end,
+  isGrassCell = function(_, x, y) return y == 4 and x >= 1 and x <= 3 end,
+  isWalkableCell = function(_, x, y)
+    return not (x == 1 and y == 3)
+  end,
+}
+
 local grassActor = {
   id = "grass_probe",
   cellX = 3, cellY = 5,
@@ -158,7 +173,7 @@ local grassActor = {
 }
 local state = {
   map = map,
-  neighbors = { { map = neighborMap, ox = 128, oy = 0 } },
+  neighbors = { { map = neighborMap, ox = 64, oy = 0 } },
   entities = { grassActor }, ghosts = {},
   player = { cellX = 4, cellY = 4 },
 }
@@ -185,6 +200,10 @@ local rendered = Pipelines.drawWorld("krs_hd2d_world", {
 assert(rendered ~= nil, "synthetic HD2D world did not produce a canvas")
 assert(drawCounts.current >= 2, "current map renderer was not captured")
 assert(drawCounts.neighbor >= 1, "connected-neighbour renderer was not captured")
+assert(exports.relief.lastScenes >= 2,
+  "connected-neighbour semantic relief pass did not visit both scenes")
+assert(exports.relief.lastCells >= 2,
+  "connected-neighbour semantic relief did not classify raised cells")
 assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute")
 assert(exports.occlusion.overlays >= 1, "tall-grass overlay was not composited")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
