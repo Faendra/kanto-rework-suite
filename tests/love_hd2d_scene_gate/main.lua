@@ -40,15 +40,15 @@ function love.load()
       end
     end
 
-    -- Three compact warp-backed structures, two interior tree groups and a
-    -- distinct top rock border. The tree groups deliberately do not touch map
-    -- edges so the conservative runtime semantics can distinguish them from
-    -- TEST2-style rock/border masses without hard-coding Pallet coordinates.
+    -- Three compact warp-backed structures, two separate interior tree groups
+    -- and a distinct top rock border. Natural masses are intentionally kept at
+    -- least one cell away from architecture so the gate tests classification,
+    -- not an impossible connected collision blob.
     fill(2, 2, 4, 3, "houseA")
     fill(8, 2, 10, 3, "houseB")
     fill(7, 6, 11, 7, "lab")
-    fill(1, 1, 2, 3, "tree")
-    fill(11, 1, 12, 3, "tree")
+    fill(1, 6, 2, 8, "tree")
+    fill(10, 9, 12, 10, "tree")
     for x = 2, 11 do blocked[0 * 64 + x] = "rock" end
 
     local map = {
@@ -65,7 +65,7 @@ function love.load()
       return y >= 10 and x <= 4
     end
     function map:isGrassCell(x, y)
-      return y >= 6 and y <= 8 and x >= 2 and x <= 5
+      return y >= 6 and y <= 8 and x >= 3 and x <= 5
     end
     function map:isWarpTileCell(x, y)
       return (x == 3 and y == 4)
