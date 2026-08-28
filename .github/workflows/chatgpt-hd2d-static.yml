@@ -11,6 +11,7 @@ on:
       - 'tests/love_hd2d_shader_gate/**'
       - 'tests/love_hd2d_style_gate/**'
       - 'tests/love_hd2d_live_polish_gate/**'
+      - 'tests/love_hd2d_natural_forms_gate/**'
       - 'tests/love_hd2d_scene_gate/**'
       - 'tests/love_hd2d_test5_scene_gate/**'
       - '.github/workflows/chatgpt-hd2d-static.yml'
@@ -44,6 +45,7 @@ jobs:
           luac5.1 -p tests/love_hd2d_shader_gate/main.lua
           luac5.1 -p tests/love_hd2d_style_gate/main.lua
           luac5.1 -p tests/love_hd2d_live_polish_gate/main.lua
+          luac5.1 -p tests/love_hd2d_natural_forms_gate/main.lua
           luac5.1 -p tests/love_hd2d_scene_gate/main.lua
           luac5.1 -p tests/love_hd2d_test5_scene_gate/main.lua
 
@@ -125,6 +127,18 @@ jobs:
             timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate \
             2>&1 | tee hd2d-love-live-polish.log
 
+      - name: Require natural pixel cards and seam-safe actors
+        shell: bash
+        run: |
+          set -euo pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" \
+            timeout 30s xvfb-run -a love tests/love_hd2d_natural_forms_gate \
+            2>&1 | tee hd2d-love-natural-forms.log
+          find "$HOME/.local/share/love" -type f \
+            -name 'hd2d-natural-forms.png' \
+            -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          test -s hd2d-natural-forms.png
+
       - name: Render TEST5 outdoor and interior dioramas
         shell: bash
         run: |
@@ -165,8 +179,10 @@ jobs:
             hd2d-love-shader.log
             hd2d-love-style.log
             hd2d-love-live-polish.log
+            hd2d-love-natural-forms.log
             hd2d-love-test5.log
             hd2d-love-scene.log
+            hd2d-natural-forms.png
             hd2d-scene-raw.png
             hd2d-scene-depth.png
             hd2d-test5-outdoor-raw.png
@@ -177,14 +193,14 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    name: Package validated TEST5 build
+    name: Package validated TEST6 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
 
-      - name: Verify TEST5 manifest
+      - name: Verify TEST6 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -194,29 +210,29 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.3-cphd2d08-test5'
+          assert data['version'] == '0.2.4-cphd2d09-test6'
           PY
 
-      - name: Build installable TEST5 archive
+      - name: Build installable TEST6 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d08-test5.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d09-test6.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d08-test5.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d08-test5.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d08-test5.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d09-test6.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d09-test6.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d09-test6.zip
 
-      - name: Upload TEST5 build
+      - name: Upload TEST6 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test5-build
+          name: chatgpt-hd2d-test6-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d08-test5.zip
-            dist/kanto_rework_hd2d_world-cphd2d08-test5.sha256
+            dist/kanto_rework_hd2d_world-cphd2d09-test6.zip
+            dist/kanto_rework_hd2d_world-cphd2d09-test6.sha256
           if-no-files-found: error
           retention-days: 14
