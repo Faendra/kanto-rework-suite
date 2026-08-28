@@ -39,6 +39,7 @@ local RELATIVE_FILES = {
   "hd2d/Relief.lua",
   "hd2d/WaterSurface.lua",
   "hd2d/Occlusion.lua",
+  "hd2d/DepthComposer.lua",
   "hd2d/Renderer.lua",
 }
 
@@ -108,6 +109,7 @@ assert(type(exports.materialClassifier) == "table", "material classifier export 
 assert(type(exports.relief) == "table", "relief export missing")
 assert(type(exports.water) == "table", "water export missing")
 assert(type(exports.occlusion) == "table", "occlusion export missing")
+assert(type(exports.depthComposer) == "table", "depth composer export missing")
 
 Pipelines.install(data)
 local found
@@ -128,8 +130,8 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "clean nil fallback must not retire the pipeline")
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
--- projection, semantic relief, connected-neighbour capture, recessed water
--- and grass foreground priority after the package passes through the loader.
+-- projection, semantic relief, connected-neighbour capture, recessed water,
+-- actor/terrain depth composition and grass foreground priority.
 local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
@@ -165,13 +167,21 @@ local neighborMap = {
   end,
 }
 
+local actorQuad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
+local actorImage = love.graphics.newCanvas(16, 16)
+local spriteStub = {
+  getPoseGeometry = function()
+    return { quad = actorQuad, width = 16, height = 16, anchorX = 8, anchorY = 16 }
+  end,
+  resolveImage = function() return actorImage end,
+}
 local grassActor = {
   id = "grass_probe",
   cellX = 3, cellY = 5,
   px = 3 * 16, py = 5 * 16,
-  -- Renderer skips this actor as a sprite; Occlusion still consumes its
-  -- authoritative cell/pixel position, isolating the grass contract.
-  pose = function() return nil end,
+  pose = function(self)
+    return spriteStub, self.px, self.py, "down", 0, false, false
+  end,
 }
 local state = {
   map = map,
@@ -214,8 +224,16 @@ assert(exports.water.lastCells >= 8,
   "recessed water pass did not classify the synthetic water body")
 assert(exports.water.lastRuns >= 1,
   "recessed water body was not emitted as a continuous source-texture run")
+assert(exports.depthComposer.lastTerrainRows > 0,
+  "terrain rows were not submitted to the unified depth composer")
+assert(exports.depthComposer.lastActors == 1,
+  "actor billboard was not submitted to the unified depth composer")
+assert(exports.depthComposer.lastCommands
+       == exports.depthComposer.lastTerrainRows + exports.depthComposer.lastActors,
+  "depth composer command accounting is inconsistent")
 assert(drawCounts.grass >= 1, "tall-grass cell-bottom occlusion did not execute")
-assert(exports.occlusion.overlays >= 1, "tall-grass overlay was not composited")
+assert(exports.occlusion.overlays >= 1,
+  "tall-grass overlay was not composited at actor painter depth")
 assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
 
 Pipelines.reset()
