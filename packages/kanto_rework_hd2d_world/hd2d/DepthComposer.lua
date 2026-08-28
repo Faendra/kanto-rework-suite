@@ -3,13 +3,16 @@ DepthComposer.__index = DepthComposer
 
 local CELL = 16
 
-function DepthComposer.new(Relief, Occlusion)
+function DepthComposer.new(Relief, Occlusion, WaterSurface)
   return setmetatable({
     Relief = Relief,
     Occlusion = Occlusion,
+    WaterSurface = WaterSurface,
     lastCommands = 0,
     lastTerrainRows = 0,
     lastActors = 0,
+    lastWaterActors = 0,
+    lastHoppingActors = 0,
   }, DepthComposer)
 end
 
@@ -49,18 +52,33 @@ end
 function DepthComposer:addActors(commands, host, state)
   for _, row in ipairs(host:collectActors(state)) do
     local map, ox, oy = actorMap(state, row.actor)
-    -- collectActors already carries ghost offsets. Prefer the authoritative
-    -- ghost record when available, but keep those values for compatibility.
     row.ox = row.ox or ox
     row.oy = row.oy or oy
     row.map = map
     commands[#commands + 1] = {
       kind = "actor",
-      depth = row.py + (row.oy or 0) + CELL,
+      -- Pose Y may be vertically displaced by a ledge hop. Depth ownership
+      -- remains the actor's real ground baseline, not the airborne sprite Y.
+      depth = row.basePy + (row.oy or 0) + CELL,
       priority = 2,
       row = row,
     }
   end
+end
+
+function DepthComposer:surfaceZFor(host, row)
+  local map = row and row.map
+  if not map then return 0 end
+  local classifier = host.MaterialClassifier
+  if not classifier then return 0 end
+
+  local cx = math.floor(((row.basePx or row.px or 0) + 8) / CELL)
+  local cy = math.floor(((row.basePy or row.py or 0) + 12) / CELL)
+  local material = classifier.classify(map, cx, cy)
+  if material.kind == "water" and self.WaterSurface then
+    return self.WaterSurface.surfaceZ(host.level)
+  end
+  return 0
 end
 
 function DepthComposer:drawActorOcclusion(proj, row)
@@ -83,6 +101,7 @@ function DepthComposer:draw(host, ctx, proj)
   self.Relief:resetMetrics()
   self.Occlusion:beginFrame()
   self.lastCommands, self.lastTerrainRows, self.lastActors = 0, 0, 0
+  self.lastWaterActors, self.lastHoppingActors = 0, 0
 
   local commands = {}
   self:addScene(commands, state.map, 0, 0, ctx, proj)
@@ -107,8 +126,13 @@ function DepthComposer:draw(host, ctx, proj)
                           command.cy, command.x0, command.x1)
       self.lastTerrainRows = self.lastTerrainRows + 1
     else
-      host:drawShadow(proj, command.row)
-      host:drawActor(proj, command.row)
+      local surfaceZ = self:surfaceZFor(host, command.row)
+      host:drawShadow(proj, command.row, surfaceZ)
+      host:drawActor(proj, command.row, surfaceZ)
+      if surfaceZ < 0 then self.lastWaterActors = self.lastWaterActors + 1 end
+      if command.row.hopping then
+        self.lastHoppingActors = self.lastHoppingActors + 1
+      end
       -- Tall grass belongs to the same painter depth as its actor. Drawing it
       -- here prevents a far grass overlay from appearing over a nearer house.
       self:drawActorOcclusion(proj, command.row)
