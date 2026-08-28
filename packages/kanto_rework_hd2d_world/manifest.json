@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.1.0-cphd2d03-test1",
+  "version": "0.1.0-cphd2d04-test2",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS live-test HD-2D overworld renderer: semantic buildings and vegetation, recessed water, upright pixel-art actors, depth composition and world-only focal atmosphere. Experimental test build; gameplay logic remains Gen1Recomp-authoritative."
+  "description": "KRS live-test HD-2D overworld renderer TEST2: bounded semantic architecture, natural relief without black slabs, outdoor border suppression, recessed water, upright actors, depth composition and world-only focal atmosphere. Gameplay remains Gen1Recomp-authoritative."
 }
