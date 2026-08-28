@@ -1,3 +1,5 @@
+local VanillaMotifs = require("hd2d.VanillaMotifs")
+
 local NaturalForms = {}
 
 local CELL = 16
@@ -51,8 +53,8 @@ local function heightForScreen(proj, cx, cy, targetPixels, fallback)
   local _, baseY = proj:cell(cx, cy, 0.008)
   if type(baseY) ~= "number" then return fallback end
 
-  local lo, hi = 0.04, 2.40
-  for _ = 1, 10 do
+  local lo, hi = 0.04, 3.20
+  for _ = 1, 11 do
     local mid = (lo + hi) * 0.5
     local _, topY = proj:cell(cx, cy, mid)
     if type(topY) ~= "number" then return fallback end
@@ -118,10 +120,10 @@ local function drawTexturedCard(renderer, proj, cmd,
   end)
   if not ok then return false end
 
-  love.graphics.setColor(0, 0, 0, 0.14)
+  love.graphics.setColor(0, 0, 0, 0.18)
   love.graphics.ellipse("fill", bx, by + 1,
-                        scale * width * 0.34,
-                        scale * width * 0.105)
+                        scale * width * 0.35,
+                        scale * width * 0.11)
   local c = tint or { 1, 1, 1 }
   love.graphics.setColor(clamp(c[1], 0, 1),
                          clamp(c[2], 0, 1),
@@ -155,12 +157,10 @@ local function drawTexturedBoulder(renderer, proj, cmd, variationValue)
   end
 
   local centerX, centerY = proj:cell(cx, cy, 0.004)
-  love.graphics.setColor(0, 0, 0, 0.13)
+  love.graphics.setColor(0, 0, 0, 0.14)
   love.graphics.ellipse("fill", centerX, centerY + 1,
                         scale * 0.34, scale * 0.11)
 
-  -- Draw only the screen-front side facets. Each cell keeps a gap to the next,
-  -- so long collision boundaries read as individual boulders rather than one wall.
   local edges = {}
   for i = 1, #BOULDER_SHAPE do
     local j = i % #BOULDER_SHAPE + 1
@@ -206,6 +206,15 @@ local function variation(cmd)
   return ((x * 17 + y * 29) % 5) / 4
 end
 
+local function motifForCommand(cmd)
+  if not (cmd and cmd.scene and cmd.scene.map) then return nil end
+  local ox = (tonumber(cmd.scene.ox) or 0) / CELL
+  local oy = (tonumber(cmd.scene.oy) or 0) / CELL
+  local cx = math.floor((tonumber(cmd.x) or 0) - ox + 0.001)
+  local cy = math.floor((tonumber(cmd.y) or 0) - oy + 0.001)
+  return VanillaMotifs.cellMotif(cmd.scene.map, cx, cy)
+end
+
 function NaturalForms.apply(renderer)
   if not renderer or renderer.__naturalFormsApplied then return renderer end
   renderer.__naturalFormsApplied = true
@@ -230,10 +239,15 @@ function NaturalForms.apply(renderer)
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
     local v = variation(cmd)
-    local ratio = 1.16 + v * 0.12
-    local width = 0.88 + v * 0.07
+    -- Vanilla OVERWORLD tree cells are 16x16 sprites. Give them a deliberately
+    -- vertical screen presence so the route edge reads as a forest wall rather
+    -- than the same top-down tile pasted onto the floor.
+    local ratio = ({ 1.42, 1.72, 2.02 })[proj.level] or 1.72
+    ratio = ratio * (0.96 + v * 0.07)
+    local width = ({ 0.94, 1.02, 1.08 })[proj.level] or 1.02
+    width = width * (0.97 + v * 0.05)
     if drawTexturedCard(self, proj, cmd, ratio, width,
-                        { 0.98, 1.00, 0.96 }, 1.08) then
+                        { 0.96, 1.00, 0.94 }, 1.55) then
       self.lastNaturalVegetationCards =
         (self.lastNaturalVegetationCards or 0) + 1
       return true
@@ -244,10 +258,11 @@ function NaturalForms.apply(renderer)
 
   local baseDrawLowPrism = renderer.drawLowPrism
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
-    -- SceneRenderer passes >=0.17 only for continuous boundary families.
-    -- Obstacles remain shallow prisms; boundaries become discrete textured
-    -- boulders so a long Route 1 edge cannot become one grey retaining wall.
-    if (tonumber(height) or 0) >= 0.17 then
+    -- Only the canonical boulder motif becomes a 3D boulder. TEST6 converted
+    -- every boundary family into rocks; Pallet/Route 1 proved that many of
+    -- those cells are actually vanilla tree motifs. Unknown boundaries now
+    -- retain their conservative low-prism fallback instead of being relabelled.
+    if motifForCommand(cmd) == "boulder" then
       local v = variation(cmd)
       if drawTexturedBoulder(self, proj, cmd, v) then
         self.lastNaturalBoundaryCards =
