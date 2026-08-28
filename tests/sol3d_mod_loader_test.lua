@@ -100,7 +100,8 @@ for _, row in ipairs(Pipelines.list()) do
   end
 end
 assert(found, "krs_3dworld render pipeline was not registered")
-assert(found.label == "KRS 3DWORLD", "unexpected pipeline label")
+assert(found.def and found.def.label == "KRS 3DWORLD",
+  "unexpected pipeline label")
 
 -- Enabling the pipeline without an overworld must remain a clean vanilla
 -- fallback. There is intentionally no game/ROM fixture in this compatibility
