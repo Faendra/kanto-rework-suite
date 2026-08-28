@@ -38,13 +38,9 @@ local function loadLocal(name, path)
   return result
 end
 
--- The first live capture showed that the original experimental projection and
--- generic relief were technically valid but visually too aggressive. Keep the
--- old files in-package for comparison, while the live pipeline now uses these
--- stabilized implementations.
-local Projection = loadLocal("hd2d.ProjectionLive", "hd2d/ProjectionLive.lua")
+local Projection = loadLocal("hd2d.Projection", "hd2d/Projection.lua")
 local MaterialClassifier = loadLocal("hd2d.MaterialClassifier", "hd2d/MaterialClassifier.lua")
-local Relief = loadLocal("hd2d.ReliefLive", "hd2d/ReliefLive.lua")
+local Relief = loadLocal("hd2d.Relief", "hd2d/Relief.lua")
 local WaterSurface = loadLocal("hd2d.WaterSurface", "hd2d/WaterSurface.lua")
 local Occlusion = loadLocal("hd2d.Occlusion", "hd2d/Occlusion.lua")
 local DepthComposer = loadLocal("hd2d.DepthComposer", "hd2d/DepthComposer.lua")
@@ -58,7 +54,6 @@ local occlusion = Occlusion.new()
 local depthComposer = DepthComposer.new(relief, occlusion, WaterSurface)
 local atmosphere = WorldAtmosphere.new()
 
--- DepthComposer owns the painter order for raised terrain and upright actors.
 renderer.drawSolidRelief = function()
   return 0
 end
