@@ -27,6 +27,7 @@ check(close(x0, x1), "height must not move the ground point horizontally")
 check(y1 < y0, "positive relief must project upward")
 
 local fake = {
+  widthCells = 4, heightCells = 4,
   inBounds = function(_, x, y) return x >= 0 and y >= 0 and x < 4 and y < 4 end,
   isWaterCell = function(_, x, y) return x == 0 and y == 0 end,
   isGrassCell = function(_, x, y) return x == 1 and y == 0 end,
@@ -37,5 +38,38 @@ check(Classifier.classify(fake, 1, 0).kind == "grass", "grass classification")
 check(Classifier.classify(fake, 2, 0).kind == "solid", "solid classification")
 check(Classifier.classify(fake, 3, 0).kind == "ground", "ground classification")
 check(Classifier.frontExposed(fake, 2, 0), "solid front edge should extrude")
+
+-- A connected blocked footprint beside a real warp threshold is promoted to
+-- a structure family without any map-id or block-id profile. An isolated
+-- blocked cell remains a low obstacle. These families are presentation-only.
+local solid = {}
+for y = 1, 2 do
+  for x = 1, 3 do solid[y * 8 + x] = true end
+end
+solid[5 * 8 + 5] = true
+local massMap = {
+  widthCells = 6, heightCells = 6,
+  renderer = {},
+  inBounds = function(_, x, y) return x >= 0 and y >= 0 and x < 6 and y < 6 end,
+  isWaterCell = function() return false end,
+  isGrassCell = function() return false end,
+  isWarpTileCell = function(_, x, y) return x == 2 and y == 3 end,
+  warpAtCell = function(_, x, y)
+    if x == 2 and y == 3 then return { index = 1 } end
+    return nil
+  end,
+  isWalkableCell = function(_, x, y)
+    if x == 2 and y == 3 then return true end
+    return not solid[y * 8 + x]
+  end,
+}
+local structure = Classifier.classify(massMap, 2, 2)
+local obstacle = Classifier.classify(massMap, 5, 5)
+check(structure.family == "structure", "warp-adjacent blocked mass should become structure")
+check((structure.heightScale or 0) > 1,
+  "structure should receive stronger visual relief than generic mass")
+check(obstacle.family == "obstacle", "isolated blocked cell should remain low obstacle")
+check(Classifier.reliefHeight(structure, 6) > Classifier.reliefHeight(obstacle, 6),
+  "semantic families must create a visible but gameplay-neutral height hierarchy")
 
 print("hd2d_projection_contract: ok")
