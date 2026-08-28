@@ -32,6 +32,7 @@ local RELATIVE_FILES = {
   "hd2d/SceneRenderer.lua",
   "hd2d/SceneStyle.lua",
   "hd2d/LivePolish.lua",
+  "hd2d/DioramaPolish.lua",
   "hd2d/MaterialClassifier.lua",
   "hd2d/WorldAtmosphere.lua",
   -- Transitional compatibility exports still loaded by main.lua.
@@ -108,6 +109,7 @@ assert(type(exports.projection) == "table", "scene projection export missing")
 assert(type(exports.materialClassifier) == "table", "material classifier export missing")
 assert(type(exports.sceneStyle) == "table", "scene style export missing")
 assert(type(exports.livePolish) == "table", "live polish export missing")
+assert(type(exports.dioramaPolish) == "table", "diorama polish export missing")
 assert(type(exports.atmosphere) == "table", "atmosphere export missing")
 
 Pipelines.install(data)
@@ -247,6 +249,8 @@ assert((bx - ax) * (cx - ax) < 0,
   "world axes do not rotate in opposite X directions; projection regressed to a flat trapezoid")
 assert(by > ay and cy > ay,
   "both world axes must recede downward in the perspective camera")
+assert((proj.elevation / math.max(0.001, proj.tileH)) >= 2.0,
+  "TEST5 DEPTH camera is still too top-down for diorama staging")
 
 local rendered = Pipelines.drawWorld("krs_hd2d_world", worldCtx)
 assert(rendered ~= nil, "scene renderer produced no canvas")
@@ -260,8 +264,14 @@ assert(exports.renderer.lastActors == 1,
   "upright actor billboard was not depth composed")
 assert((exports.renderer.lastPerspectiveActors or 0) == 1,
   "actor billboard did not use live perspective scaling")
+assert((exports.renderer.lastVerticalizedStructures or 0) >= 1,
+  "TEST5 did not vertically stage structure geometry")
+assert((exports.renderer.lastVerticalizedVegetation or 0) >= 1,
+  "TEST5 did not vertically stage vegetation geometry")
 assert((exports.renderer.lastApronCells or 0) > 0,
   "outdoor map did not receive a non-playable world apron")
+assert((exports.renderer.lastInteriorShellPanels or 0) == 0,
+  "outdoor map incorrectly received an interior shell")
 assert(exports.renderer.lastWaterCells >= 1,
   "water contact plane was not emitted")
 assert(exports.renderer.lastCommands >= 3,
@@ -280,6 +290,51 @@ assert(exports.atmosphere.lastBypassed == true,
   "headless atmosphere path did not report clean bypass")
 assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "headless atmosphere bypass retired the pipeline")
+
+-- A room-like vanilla tileset must become a camera-facing dollhouse shell,
+-- while remaining the same gameplay map and floor coordinates.
+local interiorMap = {
+  id = "SYNTHETIC_REDS_HOUSE",
+  def = { tileset = "REDSHOUSE1" },
+  widthCells = 6,
+  heightCells = 6,
+  renderer = rendererStub,
+}
+function interiorMap:inBounds(x, y)
+  return x >= 0 and y >= 0 and x < self.widthCells and y < self.heightCells
+end
+function interiorMap:isWaterCell() return false end
+function interiorMap:isGrassCell() return false end
+function interiorMap:isWarpTileCell() return false end
+function interiorMap:warpAtCell() return nil end
+function interiorMap:isWalkableCell() return true end
+function interiorMap:cellTile() return 0x01 end
+function interiorMap:blockAt() return 0x01 end
+
+local interiorState = {
+  map = interiorMap,
+  neighbors = {},
+  entities = { actor },
+  ghosts = {},
+  player = actor,
+}
+local interiorCtx = {
+  width = 640, height = 576,
+  vw = 160, vh = 144,
+  scale = 4,
+  level = 2,
+  state = interiorState,
+  cam = { x = 0, y = 0 },
+  bgY = 0,
+  paletteFor = worldCtx.paletteFor,
+  drawFx = function() end,
+}
+local interiorRendered = Pipelines.drawWorld("krs_hd2d_world", interiorCtx)
+assert(interiorRendered ~= nil, "interior scene renderer produced no canvas")
+assert((exports.renderer.lastInteriorShellPanels or 0) == 4,
+  "room-like interior did not receive the TEST5 dollhouse shell")
+assert((exports.renderer.lastApronCells or 0) == 0,
+  "interior map incorrectly received outdoor apron geometry")
 
 Pipelines.reset()
 Pipelines.install(nil)
