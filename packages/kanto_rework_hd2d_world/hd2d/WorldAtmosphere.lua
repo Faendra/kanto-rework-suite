@@ -27,7 +27,8 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
 
     // Only the far/top field receives atmospheric separation. The focus band
     // and foreground keep the original pixel contrast instead of being washed.
-    float farMask = smoothstep(focusY - focusWidth, 0.0, uv.y);
+    float hazeEnd = max(0.001, focusY - focusWidth);
+    float farMask = 1.0 - smoothstep(0.0, hazeEnd, uv.y);
     vec3 hazeTint = vec3(0.86, 0.91, 0.94);
     outColor.rgb = mix(outColor.rgb, hazeTint,
                        farMask * hazeStrength * 0.12);
