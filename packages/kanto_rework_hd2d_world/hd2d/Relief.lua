@@ -104,6 +104,19 @@ local function paletteTone(host, ctx, map, fromDark, factor, alpha)
          clamp(b * factor, 0, 1), alpha or 1
 end
 
+-- Vegetation still carries a strong semantic height in MaterialClassifier so
+-- it sorts/readably differs from generic obstacles. Its *solid pedestal* is
+-- deliberately lower: the remaining silhouette comes from canopy geometry,
+-- avoiding the raised rectangular hedge/tower look exposed by the real-LÖVE
+-- synthetic visual gate.
+local function geometryHeight(classifier, material, lift)
+  local height = classifier.reliefHeight(material, lift)
+  if material and material.family == "vegetation" then
+    return height * 0.58
+  end
+  return height
+end
+
 local function drawTopCell(host, proj, wx, wy, height)
   local sx = wx - proj.camX
   local sy = wy - proj.bgY
@@ -169,8 +182,16 @@ local function drawMassContactShadow(proj, run)
 end
 
 local function drawFrontRun(host, ctx, proj, map, material, wx0, wx1, wy, height)
-  local frontFactor = faceFactors(material)
-  local r, g, b, a = host:paletteWallColor(ctx, map, 0.90, frontFactor)
+  local r, g, b, a
+  if material and material.family == "structure" then
+    -- A structure facade should not inherit the darkest world palette swatch:
+    -- that made buildings almost black in the real-LÖVE visual probe. Use a
+    -- mid palette family while roof/side faces retain stronger separation.
+    r, g, b, a = paletteTone(host, ctx, map, 2, 0.84, 0.97)
+  else
+    local frontFactor = faceFactors(material)
+    r, g, b, a = host:paletteWallColor(ctx, map, 0.90, frontFactor)
+  end
   local ax, ay = proj:projectTerrain(wx0, wy, 0)
   local bx, by = proj:projectTerrain(wx1, wy, 0)
   local tax, tay = proj:projectTerrain(wx0, wy, height)
@@ -273,27 +294,31 @@ local function drawGabledRoof(host, ctx, proj, map, mass, ox, oy, height)
 end
 
 local function drawVegetationCrown(host, ctx, proj, map, run)
-  local overhang = CELL * 0.16
-  local crown = math.max(2.3, proj.relief * 0.34)
+  local overhang = CELL * 0.20
+  local crown = math.max(4.4, proj.relief * 0.74)
   local wx0 = run.wx0 - overhang
   local wx1 = run.wx1 + overhang
-  local wy = run.wy + CELL * 0.035
-  local z0 = run.height * 0.73
-  local z1 = run.height + crown * 0.56
+  local wy = run.wy + CELL * 0.03
+  local z0 = run.height * 0.48
+  local z1 = run.height + crown * 0.48
+  local shoulder = math.min(CELL * 0.22, (wx1 - wx0) * 0.12)
 
-  local r, g, b, a = host:paletteWallColor(ctx, map, 0.88, 0.48)
+  -- Sloped shoulders remove the rectangular tower silhouette while preserving
+  -- one connected canopy mass. Pixel-derived crown strips sit above this
+  -- darker apron instead of every source row becoming its own raised slab.
+  local r, g, b, a = paletteTone(host, ctx, map, 1, 0.66, 0.90)
   local ax, ay = proj:projectTerrain(wx0, wy, z0)
   local bx, by = proj:projectTerrain(wx1, wy, z0)
-  local tax, tay = proj:projectTerrain(wx0, wy, z1)
-  local tbx, tby = proj:projectTerrain(wx1, wy, z1)
+  local tax, tay = proj:projectTerrain(wx0 + shoulder, wy, z1)
+  local tbx, tby = proj:projectTerrain(wx1 - shoulder, wy, z1)
   love.graphics.setColor(r, g, b, a)
   love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
 
   local cells = math.max(1, math.floor((run.wx1 - run.wx0) / CELL + 0.5))
   drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
-                  run.height + crown * 0.62, 1.10, 0.72, 0.97)
+                  run.height + crown * 0.56, 1.12, 0.56, 0.96)
   drawTexturedRun(host, proj, run.wx0, run.sourceY, cells,
-                  run.height + crown, 1.02, 0.47, 0.92)
+                  run.height + crown, 0.90, 0.36, 0.91)
 end
 
 function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
@@ -323,7 +348,7 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
            or not classifier.frontExposed(map, runEnd + 1, cy) then break end
         runEnd = runEnd + 1
       end
-      local height = classifier.reliefHeight(material, lift)
+      local height = geometryHeight(classifier, material, lift)
       local wy = (cy + 1) * CELL + oy
       local run = {
         material = material,
@@ -352,7 +377,7 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     if material and material.family == "structure"
        and classifier.frontExposed(map, dx, cy)
        and classifier.isTraversalThreshold(map, dx, cy + 1) then
-      local height = classifier.reliefHeight(material, lift)
+      local height = geometryHeight(classifier, material, lift)
       drawDoorway(host, ctx, proj, map, dx, cy, ox, oy, height)
       self.lastDoorways = self.lastDoorways + 1
     end
@@ -362,7 +387,7 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     local material = materials[sx]
     if material and material.kind == "solid"
        and classifier.sideExposed(map, sx, cy, 1) then
-      local height = classifier.reliefHeight(material, lift)
+      local height = geometryHeight(classifier, material, lift)
       drawSideFace(host, ctx, proj, map, material,
                    sx * CELL + ox, cy * CELL + oy, height)
       self.lastSideFaces = self.lastSideFaces + 1
@@ -377,7 +402,7 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
       while runEnd + 1 <= x1 and sameMass(material, materials[runEnd + 1]) do
         runEnd = runEnd + 1
       end
-      local height = classifier.reliefHeight(material, lift)
+      local height = geometryHeight(classifier, material, lift)
       if drawTopRun(host, proj, runStart * CELL + ox, cy * CELL + oy,
                     runEnd - runStart + 1, height) then
         self.lastTopRuns = self.lastTopRuns + 1
