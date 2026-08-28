@@ -22,6 +22,10 @@ function Occlusion.new()
   }, Occlusion)
 end
 
+function Occlusion:beginFrame()
+  self.overlays = 0
+end
+
 function Occlusion:invalidate()
   release(self.grassCanvas)
   self.grassCanvas = nil
@@ -85,7 +89,7 @@ function Occlusion:draw(ctx, proj)
   local map = state and state.map
   if not (map and proj) then return 0 end
 
-  self.overlays = 0
+  self:beginFrame()
   for _, actor in ipairs(state.entities or {}) do
     if not ((state.flyAnim or state.flyArrive or state.playerHidden)
             and actor == state.player) then
