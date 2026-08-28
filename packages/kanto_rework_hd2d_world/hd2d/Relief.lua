@@ -15,6 +15,7 @@ function Relief.new(MaterialClassifier)
     lastDoorways = 0,
     lastEaves = 0,
     lastCanopies = 0,
+    lastMassShadows = 0,
   }, Relief)
 end
 
@@ -41,6 +42,7 @@ function Relief:resetMetrics()
   self.lastScenes, self.lastCells = 0, 0
   self.lastTopRuns, self.lastFrontRuns, self.lastSideFaces = 0, 0, 0
   self.lastDoorways, self.lastEaves, self.lastCanopies = 0, 0, 0
+  self.lastMassShadows = 0
 end
 
 local function sameMass(a, b)
@@ -57,6 +59,15 @@ local function faceFactors(material)
   if family == "landmark" then return 0.69, 0.53 end
   if family == "obstacle" then return 0.77, 0.62 end
   return 0.66, 0.54
+end
+
+local function shadowAlpha(material)
+  local family = material and material.family or "mass"
+  if family == "structure" then return 0.115, 0.24 end
+  if family == "vegetation" then return 0.095, 0.20 end
+  if family == "landmark" then return 0.080, 0.18 end
+  if family == "boundary" then return 0.060, 0.15 end
+  return 0.050, 0.12
 end
 
 local function drawTopCell(host, proj, wx, wy, height)
@@ -109,6 +120,21 @@ local function drawTopRun(host, proj, wx, wy, cells, height)
   return any
 end
 
+local function drawMassContactShadow(proj, run)
+  local alpha, reach = shadowAlpha(run.material)
+  local driftX = CELL * 0.07
+  local y0 = run.wy + 0.05
+  local y1 = run.wy + CELL * reach
+  local x0 = run.wx0 + driftX
+  local x1 = run.wx1 + driftX + CELL * reach * 0.12
+  local ax, ay = proj:projectTerrain(x0, y0, 0.02)
+  local bx, by = proj:projectTerrain(x1, y0, 0.02)
+  local cx, cy = proj:projectTerrain(x1, y1, 0.02)
+  local dx, dy = proj:projectTerrain(x0, y1, 0.02)
+  love.graphics.setColor(0, 0, 0, alpha)
+  love.graphics.polygon("fill", ax, ay, bx, by, cx, cy, dx, dy)
+end
+
 local function drawFrontRun(host, ctx, proj, map, material, wx0, wx1, wy, height)
   local frontFactor = faceFactors(material)
   local r, g, b, a = host:paletteWallColor(ctx, map, 0.90, frontFactor)
@@ -132,9 +158,6 @@ local function drawSideFace(host, ctx, proj, map, material, wx, wy, height)
 end
 
 local function drawDoorway(host, ctx, proj, map, cx, cy, ox, oy, height)
-  -- The threshold cell itself stays gameplay-authoritative ground. This panel
-  -- is painted only onto the raised front face immediately behind that real
-  -- warp, so it cannot invent an entrance where traversal does not exist.
   local centerX = (cx + 0.5) * CELL + (ox or 0)
   local wallY = (cy + 1) * CELL + (oy or 0)
   local halfW = CELL * 0.30
@@ -148,8 +171,6 @@ local function drawDoorway(host, ctx, proj, map, cx, cy, ox, oy, height)
   love.graphics.setColor(r, g, b, a)
   love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
 
-  -- One restrained lintel line separates the opening from the facade without
-  -- introducing extra asset detail or a map-specific architectural style.
   local lr, lg, lb, la = host:paletteWallColor(ctx, map, 0.92, 0.88)
   local lintel = math.max(0.45, proj.scale > 1 and 0.55 or 0.75)
   local ltax, ltay = proj:projectTerrain(left, wallY + 0.03, doorH)
@@ -169,8 +190,6 @@ local function drawStructureEave(host, ctx, proj, map, run)
   local z0 = math.max(0, run.height - thickness * 0.30)
   local z1 = run.height + thickness
 
-  -- A continuous overhanging band gives the facade one architectural break.
-  -- It follows the inferred structure frontage, not individual source cells.
   local r, g, b, a = host:paletteWallColor(ctx, map, 0.94, 0.43)
   local ax, ay = proj:projectTerrain(wx0, wy, z0)
   local bx, by = proj:projectTerrain(wx1, wy, z0)
@@ -193,8 +212,6 @@ local function drawVegetationCrown(host, ctx, proj, map, run)
   local z0 = run.height * 0.73
   local z1 = run.height + crown * 0.56
 
-  -- Dark continuous canopy apron: this hides the flat wall reading while the
-  -- pixel-derived crown layers above retain Kanto's original colour breakup.
   local r, g, b, a = host:paletteWallColor(ctx, map, 0.88, 0.48)
   local ax, ay = proj:projectTerrain(wx0, wy, z0)
   local bx, by = proj:projectTerrain(wx1, wy, z0)
@@ -210,9 +227,6 @@ local function drawVegetationCrown(host, ctx, proj, map, run)
                   run.height + crown, 1.02, 0.47, 0.92)
 end
 
--- Draw one terrain depth row. Keeping this independently callable allows the
--- depth composer to interleave raised world masses with actor billboards using
--- their common baseline-Y order instead of forcing all terrain behind actors.
 function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
   if not (host and host.source and host.cellQuad and map) then return 0 end
   ox, oy = ox or 0, oy or 0
@@ -228,7 +242,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     if material.kind == "solid" then drawn = drawn + 1 end
   end
 
-  -- Front walls: merge adjacent exposed edges belonging to one mass.
   local cx = x0
   while cx <= x1 do
     local material = materials[cx]
@@ -253,6 +266,8 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
         wy = wy,
         height = height,
       }
+      drawMassContactShadow(proj, run)
+      self.lastMassShadows = self.lastMassShadows + 1
       drawFrontRun(host, ctx, proj, map, material,
                    run.wx0, run.wx1, wy, height)
       frontRuns[#frontRuns + 1] = run
@@ -263,9 +278,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     end
   end
 
-  -- A real traversal threshold immediately south of a structure becomes a
-  -- facade opening. The geometry remains exactly the connected solid mass;
-  -- only the already-present front wall receives the entrance cue.
   for dx = x0, x1 do
     local material = materials[dx]
     if material and material.family == "structure"
@@ -288,7 +300,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     end
   end
 
-  -- Top surfaces: merge each horizontal span from the same connected mass.
   cx = x0
   while cx <= x1 do
     local material = materials[cx]
@@ -308,9 +319,6 @@ function Relief:drawRow(host, ctx, proj, map, ox, oy, cy, x0, x1)
     end
   end
 
-  -- Semantic silhouette pass. The base footprint and collision are untouched;
-  -- these cues exist only above the inferred front edge and therefore improve
-  -- recognition without manufacturing traversal geometry.
   for _, run in ipairs(frontRuns) do
     local family = run.material.family
     if family == "structure" then
