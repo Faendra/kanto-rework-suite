@@ -48,12 +48,15 @@ local WorldAdapter = loadLocal("sol3d.WorldAdapter", "sol3d/WorldAdapter.lua")
 loadLocal("sol3d.Projection", "sol3d/Projection.lua")
 loadLocal("sol3d.SceneProfiles", "sol3d/SceneProfiles.lua")
 local Renderer = loadLocal("sol3d.Renderer", "sol3d/Renderer.lua")
+local Presentation = loadLocal("sol3d.Presentation", "sol3d/Presentation.lua")
 
 local adapter = WorldAdapter.new(mod)
 local renderer = Renderer.new(adapter)
+local presentation = Presentation.new()
 
 mod.exports.renderer = renderer
 mod.exports.adapter = adapter
+mod.exports.presentation = presentation
 
 mod.content.render_pipelines:register("krs_3dworld", {
   label = "KRS 3DWORLD",
@@ -65,8 +68,18 @@ mod.content.render_pipelines:register("krs_3dworld", {
   end,
   update = function(dt, level)
     renderer:update(dt, level)
+    presentation:update(dt, level)
   end,
   drawWorld = function(ctx)
     return renderer:drawWorld(ctx)
+  end,
+  worldPresent = function(canvas, ctx)
+    -- Presentation failures degrade locally to the unprocessed 3DWorld
+    -- canvas.  The geometry renderer remains active instead of retiring the
+    -- entire display pipeline because an optional shader is unavailable.
+    return presentation:worldPresent(canvas, ctx, renderer.level)
+  end,
+  invalidate = function()
+    presentation:invalidate()
   end,
 })
