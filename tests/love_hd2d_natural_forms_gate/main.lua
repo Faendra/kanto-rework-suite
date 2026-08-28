@@ -22,14 +22,31 @@ function love.load()
 
   local ok, err = pcall(function()
     local Projection = module(root, "hd2d/SceneProjection.lua")
+    local VanillaMotifs = module(root, "hd2d/VanillaMotifs.lua")
+    package.preload["hd2d.VanillaMotifs"] = function() return VanillaMotifs end
     local NaturalForms = module(root, "hd2d/NaturalForms.lua")
     local SceneContinuity = module(root, "hd2d/SceneContinuity.lua")
 
+    local TREE = { 0x2A, 0x2B, 0x3A, 0x3B }
+    local BOULDER = { 0x40, 0x41, 0x50, 0x51 }
     local map = {
       def = { tileset = "OVERWORLD" },
       widthCells = 8,
       heightCells = 8,
     }
+    function map:tileAt(tx, ty)
+      local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
+      local qi = (ty % 2) * 2 + (tx % 2) + 1
+      if cx == 1 and cy == 1 then return TREE[qi] end
+      if cx == 3 and cy == 1 then return BOULDER[qi] end
+      return 0x2C
+    end
+
+    assert(VanillaMotifs.cellMotif(map, 1, 1) == "tree",
+           "canonical tree quartet was not recognized")
+    assert(VanillaMotifs.cellMotif(map, 3, 1) == "boulder",
+           "canonical boulder quartet was not recognized")
+
     local ctx = {
       width = 800,
       height = 450,
@@ -44,14 +61,12 @@ function love.load()
     local source = love.graphics.newCanvas(128, 128)
     love.graphics.setCanvas(source)
     love.graphics.clear(0.42, 0.66, 0.30, 1)
-    -- Cell 1,1: foliage-like source pixels.
     love.graphics.setColor(0.08, 0.30, 0.12, 1)
     love.graphics.rectangle("fill", 16, 16, 16, 16)
     love.graphics.setColor(0.34, 0.70, 0.27, 1)
     love.graphics.rectangle("fill", 19, 18, 10, 9)
     love.graphics.setColor(0.58, 0.82, 0.35, 1)
     love.graphics.rectangle("fill", 22, 18, 5, 4)
-    -- Cell 3,1: rock-like source pixels.
     love.graphics.setColor(0.50, 0.54, 0.52, 1)
     love.graphics.rectangle("fill", 48, 16, 16, 16)
     love.graphics.setColor(0.82, 0.84, 0.78, 1)
@@ -81,17 +96,19 @@ function love.load()
     NaturalForms.apply(fake)
     fake:resetMetrics()
 
+    local scene = { map = map, ox = 0, oy = 0 }
     local output = love.graphics.newCanvas(800, 450)
     love.graphics.setCanvas(output)
     love.graphics.clear(0.64, 0.78, 0.84, 1)
-    fake:drawVegetation(proj, { x = 1, y = 1 })
-    fake:drawLowPrism(proj, { x = 3, y = 1 }, 0.18, { 0.6, 0.6, 0.6 })
+    fake:drawVegetation(proj, { x = 1, y = 1, scene = scene })
+    fake:drawLowPrism(proj, { x = 3, y = 1, scene = scene }, 0.18,
+                      { 0.6, 0.6, 0.6 })
     love.graphics.setCanvas()
 
     assert(fake.lastNaturalVegetationCards == 1,
            "vegetation did not use source-textured upright natural card")
     assert(fake.lastNaturalBoundaryCards == 1,
-           "boundary did not use source-textured upright natural card")
+           "canonical boulder did not use source-textured 3D boulder path")
     assert((fake.lastNaturalCardFallbacks or 0) == 0,
            "natural forms unexpectedly fell back to old geometry")
     assert(fallbackVegetation == 0 and fallbackBoundary == 0,
@@ -121,6 +138,7 @@ function love.load()
            "continuity cull metric did not record unsupported actor")
   end)
 
+  package.preload["hd2d.VanillaMotifs"] = nil
   if not ok then return fail(err) end
   print("PASS love_hd2d_natural_forms_gate")
   love.event.quit(0)
