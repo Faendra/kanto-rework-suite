@@ -147,7 +147,7 @@ jobs:
           p = Path('packages/kanto_rework_hd2d_world/manifest.json')
           data = json.loads(p.read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.1.0-cphd2d03-test1'
+          assert data['version'] == '0.1.0-cphd2d04-test2'
           PY
 
       - name: Build installable test archive
@@ -156,20 +156,20 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d03-test1.zip \
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d04-test2.zip \
             kanto_rework_hd2d_world \
             -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d03-test1.zip \
-            | tee dist/kanto_rework_hd2d_world-cphd2d03-test1.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d03-test1.zip
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d04-test2.zip \
+            | tee dist/kanto_rework_hd2d_world-cphd2d04-test2.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d04-test2.zip
 
       - name: Upload live test build
         uses: actions/upload-artifact@v4
         with:
           name: chatgpt-hd2d-live-test-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d03-test1.zip
-            dist/kanto_rework_hd2d_world-cphd2d03-test1.sha256
+            dist/kanto_rework_hd2d_world-cphd2d04-test2.zip
+            dist/kanto_rework_hd2d_world-cphd2d04-test2.sha256
           if-no-files-found: error
           retention-days: 14
