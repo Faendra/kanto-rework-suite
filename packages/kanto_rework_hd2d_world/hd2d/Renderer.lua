@@ -193,8 +193,6 @@ function Renderer:drawSolidRelief(ctx, proj)
           love.graphics.polygon("fill", tax, tay, tbx, tby, bx, by, ax, ay)
         end
 
-        -- Re-sample the already-rendered terrain cell and lift only its top
-        -- surface. This preserves animated/custom tiles and palette packs.
         local sx = wx - proj.camX
         local sy = wy - proj.bgY
         if sx >= 0 and sy >= 0
@@ -277,8 +275,6 @@ function Renderer:drawActor(proj, row, surfaceZ)
   local wy
   local lift = 0
   if row.hopping then
-    -- Player:pose returns a screen-Y arc plus hopping=true specifically so a
-    -- 3D renderer can convert that cosmetic offset into vertical elevation.
     wy = row.basePy + (row.oy or 0) + 12
     lift = math.max(0, row.basePy - row.py)
   else
@@ -314,13 +310,18 @@ function Renderer:drawWaterLight(ctx, proj)
   local phase = (math.sin(self.elapsed * 1.5) + 1) * 0.5
   local radius = 5
   local cx0, cy0 = p.cellX or 0, p.cellY or 0
+  local waterZ = 0
+  if type(self.waterSurfaceZ) == "function" then
+    local ok, value = pcall(self.waterSurfaceZ, self)
+    if ok and finite(value) then waterZ = value end
+  end
   love.graphics.setColor(1, 1, 1, 0.025 + phase * 0.025)
   for cy = cy0 - radius, cy0 + radius do
     for cx = cx0 - radius, cx0 + radius do
       local material = self.MaterialClassifier.classify(map, cx, cy)
       if material.kind == "water" then
         local wx, wy = cx * CELL, cy * CELL
-        local a = proj:cellMetrics(wx, wy, CELL, 0)
+        local a = proj:cellMetrics(wx, wy, CELL, waterZ)
         love.graphics.rectangle("fill", a.x, a.y + a.height * 0.62,
                                 a.width, math.max(1, proj.scale * 0.55))
       end
