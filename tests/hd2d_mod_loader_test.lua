@@ -131,7 +131,8 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
 
 -- Synthetic read-only world: enough to exercise terrain capture, strip
 -- projection, semantic relief, connected-neighbour capture, recessed water,
--- actor/terrain depth composition, warp-derived facade cues and grass priority.
+-- actor/terrain depth composition, warp-derived facade cues, contact planes,
+-- airborne hops and grass foreground priority.
 local drawCounts = { current = 0, neighbor = 0, fx = 0, grass = 0 }
 local rendererStub = {
   drawBorderFill = function() drawCounts.current = drawCounts.current + 1 end,
@@ -182,19 +183,28 @@ local spriteStub = {
   end,
   resolveImage = function() return actorImage end,
 }
-local grassActor = {
-  id = "grass_probe",
-  cellX = 3, cellY = 5,
-  px = 3 * 16, py = 5 * 16,
-  pose = function(self)
-    return spriteStub, self.px, self.py, "down", 0, false, false
-  end,
-}
+local function makeActor(id, cx, cy, opts)
+  opts = opts or {}
+  local actor = {
+    id = id,
+    cellX = cx, cellY = cy,
+    px = cx * 16, py = cy * 16,
+  }
+  actor.pose = function(self)
+    local poseY = self.py - (opts.hopLift or 0)
+    return spriteStub, self.px, poseY, "down", 0, false, opts.hopping == true
+  end
+  return actor
+end
+
+local grassActor = makeActor("grass_probe", 3, 5)
+local waterActor = makeActor("water_probe", 0, 7)
+local hoppingActor = makeActor("hop_probe", 6, 2, { hopping = true, hopLift = 8 })
 local state = {
   map = map,
   neighbors = { { map = neighborMap, ox = 64, oy = 0 } },
-  entities = { grassActor }, ghosts = {},
-  player = { cellX = 4, cellY = 4 },
+  entities = { grassActor, waterActor, hoppingActor }, ghosts = {},
+  player = grassActor,
 }
 
 local rendered = Pipelines.drawWorld("krs_hd2d_world", {
@@ -235,8 +245,12 @@ assert(exports.water.lastRuns >= 1,
   "recessed water body was not emitted as a continuous source-texture run")
 assert(exports.depthComposer.lastTerrainRows > 0,
   "terrain rows were not submitted to the unified depth composer")
-assert(exports.depthComposer.lastActors == 1,
-  "actor billboard was not submitted to the unified depth composer")
+assert(exports.depthComposer.lastActors == 3,
+  "all synthetic actor billboards were not submitted to the depth composer")
+assert(exports.depthComposer.lastWaterActors == 1,
+  "water actor was not resolved onto the recessed contact plane")
+assert(exports.depthComposer.lastHoppingActors == 1,
+  "hopping actor was not tracked as airborne depth")
 assert(exports.depthComposer.lastCommands
        == exports.depthComposer.lastTerrainRows + exports.depthComposer.lastActors,
   "depth composer command accounting is inconsistent")
