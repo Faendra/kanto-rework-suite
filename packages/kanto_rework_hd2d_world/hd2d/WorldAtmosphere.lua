@@ -17,7 +17,7 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
     float blurMask = smoothstep(focusWidth, focusWidth + 0.28, focusDistance)
                    * blurStrength;
 
-    vec2 spread = texelSize * (1.0 + blurMask * 1.8);
+    vec2 spread = texelSize * (1.0 + blurMask * 2.4);
     vec4 soft = base * 0.42;
     soft += Texel(tex, uv + vec2(spread.x, 0.0)) * 0.145;
     soft += Texel(tex, uv - vec2(spread.x, 0.0)) * 0.145;
@@ -25,16 +25,16 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
     soft += Texel(tex, uv - vec2(0.0, spread.y)) * 0.145;
     vec4 outColor = mix(base, soft, blurMask);
 
-    // Only the far/top field receives atmospheric separation. The focus band
-    // and foreground keep the original pixel contrast instead of being washed.
+    // Atmospheric separation is strongest behind the player and deliberately
+    // restrained around the focus plane. This keeps gameplay sprites crisp
+    // while DEPTH/CINEMA visibly separate distant world planes.
     float hazeEnd = max(0.001, focusY - focusWidth);
     float farMask = 1.0 - smoothstep(0.0, hazeEnd, uv.y);
     vec3 hazeTint = vec3(0.86, 0.91, 0.94);
     outColor.rgb = mix(outColor.rgb, hazeTint,
-                       farMask * hazeStrength * 0.12);
+                       farMask * hazeStrength * 0.30);
 
-    // Restrained world-only edge shaping: never touches UI because this shader
-    // is used through render_pipelines.worldPresent rather than full present.
+    // World-only vignette; dialog boxes and menus are composited after this.
     vec2 centered = uv - vec2(0.5, 0.52);
     float vignette = smoothstep(0.28, 0.72, dot(centered, centered) * 1.45);
     outColor.rgb *= 1.0 - vignette * vignetteStrength;
@@ -43,10 +43,13 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen)
 }
 ]]
 
+-- The three user-facing levels should be visibly distinct, not three nearly
+-- identical switches. HD2D remains almost pixel-sharp; DEPTH adds a moderate
+-- focal plane; CINEMA intentionally pushes the Octopath-like miniature lens.
 local PRESETS = {
-  [1] = { focusY = 0.57, focusWidth = 0.30, blur = 0.035, haze = 0.035, vignette = 0.020 },
-  [2] = { focusY = 0.57, focusWidth = 0.25, blur = 0.18,  haze = 0.060, vignette = 0.035 },
-  [3] = { focusY = 0.57, focusWidth = 0.21, blur = 0.32,  haze = 0.085, vignette = 0.050 },
+  [1] = { focusY = 0.57, focusWidth = 0.30, blur = 0.045, haze = 0.040, vignette = 0.018 },
+  [2] = { focusY = 0.57, focusWidth = 0.23, blur = 0.280, haze = 0.110, vignette = 0.035 },
+  [3] = { focusY = 0.57, focusWidth = 0.19, blur = 0.480, haze = 0.160, vignette = 0.055 },
 }
 
 local function release(obj)
@@ -70,6 +73,8 @@ function WorldAtmosphere.new()
     lastBypassed = false,
     lastLevel = 0,
     lastFocusY = nil,
+    lastBlurStrength = 0,
+    lastHazeStrength = 0,
   }, WorldAtmosphere)
 end
 
@@ -80,6 +85,8 @@ function WorldAtmosphere:invalidate()
   self.lastPasses = 0
   self.lastBypassed = false
   self.lastFocusY = nil
+  self.lastBlurStrength = 0
+  self.lastHazeStrength = 0
 end
 
 function WorldAtmosphere:shaderAvailable()
@@ -121,6 +128,8 @@ function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   self.lastPasses = 0
   self.lastBypassed = false
   self.lastFocusY = nil
+  self.lastBlurStrength = 0
+  self.lastHazeStrength = 0
   if not canvas or self.lastLevel <= 0 then
     self.lastBypassed = true
     return canvas
@@ -138,6 +147,8 @@ function WorldAtmosphere:present(canvas, ctx, level, requestedFocusY)
   if not focus or focus ~= focus then focus = preset.focusY end
   focus = clamp(focus, 0.18, 0.82)
   self.lastFocusY = focus
+  self.lastBlurStrength = preset.blur
+  self.lastHazeStrength = preset.haze
 
   local w, h = self.targetW, self.targetH
   shader:send("texelSize", { 1 / w, 1 / h })
