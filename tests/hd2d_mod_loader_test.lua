@@ -223,7 +223,7 @@ local state = {
   player = grassActor,
 }
 
-local rendered = Pipelines.drawWorld("krs_hd2d_world", {
+local worldCtx = {
   width = 640, height = 576,
   vw = 160, vh = 144,
   scale = 4,
@@ -240,7 +240,9 @@ local rendered = Pipelines.drawWorld("krs_hd2d_world", {
     assert(scale > 0, "FX projection scale invalid")
     drawCounts.fx = drawCounts.fx + 1
   end,
-})
+}
+
+local rendered = Pipelines.drawWorld("krs_hd2d_world", worldCtx)
 
 assert(rendered ~= nil, "synthetic HD2D world did not produce a canvas")
 assert(drawCounts.current >= 2, "current map renderer was not captured")
@@ -259,6 +261,10 @@ assert(exports.relief.lastEaves >= 1,
   "structure facade did not receive a continuous architectural eave")
 assert(exports.relief.lastCanopies >= 1,
   "natural repeated mass did not receive a layered vegetation canopy")
+assert(exports.relief.lastMassShadows >= 1,
+  "raised semantic masses did not receive continuous contact shadows")
+assert(exports.relief.lastRoofs >= 1,
+  "dense warp-derived structure did not receive a coherent gabled roof")
 assert(exports.water.lastCells >= 8,
   "recessed water pass did not classify the synthetic water body")
 assert(exports.water.lastRuns >= 1,
@@ -282,9 +288,7 @@ assert(drawCounts.fx == 1, "field FX bridge did not run exactly once")
 -- Upstream's headless LOVE stub intentionally exposes no shader compiler. The
 -- worldPresent hook must therefore return the valid geometry canvas untouched,
 -- not retire the pipeline or make atmosphere a hard dependency.
-local presented = Pipelines.worldPresent(rendered, {
-  width = 640, height = 576, state = state,
-})
+local presented = Pipelines.worldPresent(rendered, worldCtx)
 assert(presented == rendered,
   "headless world atmosphere fallback should preserve the geometry canvas")
 assert(exports.atmosphere.lastBypassed == true,
@@ -293,9 +297,9 @@ assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "atmosphere bypass must not retire the world pipeline")
 
 -- Simulate the minimum real-LÖVE shader contract after the fallback check.
--- This does not validate GLSL compilation, but it does execute the successful
--- worldPresent fold: shader uniforms, target canvas, one world-only pass and
--- a returned replacement Canvas.
+-- This does not validate GLSL compilation, but it executes the successful
+-- worldPresent fold: uniforms, target canvas, player-anchored focus and one
+-- world-only pass returning a replacement Canvas.
 local shaderSends = {}
 love.graphics.newShader = function()
   return {
@@ -307,9 +311,7 @@ end
 exports.atmosphere:invalidate()
 Pipelines.setLevel("krs_hd2d_world", 2)
 Pipelines.update(0)
-local gpuPresented = Pipelines.worldPresent(rendered, {
-  width = 640, height = 576, state = state,
-})
+local gpuPresented = Pipelines.worldPresent(rendered, worldCtx)
 assert(gpuPresented ~= nil and gpuPresented ~= rendered,
   "simulated GPU atmosphere pass did not return its target canvas")
 assert(exports.atmosphere.lastPasses == 1,
@@ -318,6 +320,12 @@ assert(shaderSends.blurStrength and shaderSends.blurStrength > 0,
   "atmosphere blur strength was not sent to the shader")
 assert(shaderSends.focusY and shaderSends.focusWidth,
   "atmosphere focus-band uniforms were not sent to the shader")
+assert(exports.atmosphere.lastFocusY ~= nil,
+  "player-derived focus band was not resolved")
+assert(math.abs(shaderSends.focusY - exports.atmosphere.lastFocusY) < 1e-6,
+  "shader focus band diverged from the resolved player baseline")
+assert(math.abs(shaderSends.focusY - 0.57) > 0.005,
+  "complete world context did not move focus away from the static preset")
 assert(Pipelines.worldPipeline() == "krs_hd2d_world",
   "successful atmosphere fold must keep the world pipeline eligible")
 love.graphics.newShader = nil
