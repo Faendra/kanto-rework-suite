@@ -25,6 +25,7 @@ function love.load()
     local VanillaMotifs = module(root, "hd2d/VanillaMotifs.lua")
     package.preload["hd2d.VanillaMotifs"] = function() return VanillaMotifs end
     local NaturalForms = module(root, "hd2d/NaturalForms.lua")
+    local NaturalScale = module(root, "hd2d/NaturalScale.lua")
     local SceneContinuity = module(root, "hd2d/SceneContinuity.lua")
 
     -- Verified directly from Pokemon Red generated/tilesets/overworld.png.
@@ -77,6 +78,16 @@ function love.load()
     love.graphics.setCanvas()
     source:setFilter("nearest", "nearest")
 
+    local boulderTexture = love.graphics.newCanvas(16, 16)
+    love.graphics.setCanvas(boulderTexture)
+    love.graphics.clear(0.48, 0.51, 0.49, 1)
+    love.graphics.setColor(0.82, 0.84, 0.78, 1)
+    love.graphics.rectangle("fill", 3, 2, 9, 6)
+    love.graphics.setColor(0.28, 0.31, 0.31, 1)
+    love.graphics.rectangle("fill", 2, 11, 12, 3)
+    love.graphics.setCanvas()
+    boulderTexture:setFilter("nearest", "nearest")
+
     local fallbackVegetation = 0
     local fallbackBoundary = 0
     local fake = {
@@ -95,6 +106,7 @@ function love.load()
       end,
     }
     NaturalForms.apply(fake)
+    NaturalScale.apply(fake)
     fake:resetMetrics()
 
     local scene = { map = map, ox = 0, oy = 0 }
@@ -102,14 +114,23 @@ function love.load()
     love.graphics.setCanvas(output)
     love.graphics.clear(0.64, 0.78, 0.84, 1)
     fake:drawVegetation(proj, { x = 1, y = 1, scene = scene })
-    fake:drawLowPrism(proj, { x = 3, y = 1, scene = scene }, 0.18,
-                      { 0.6, 0.6, 0.6 })
+    fake:drawLowPrism(proj,
+      { x = 3, y = 1, scene = scene, atlasTexture = boulderTexture },
+      0.18, { 0.6, 0.6, 0.6 })
     love.graphics.setCanvas()
 
     assert(fake.lastNaturalVegetationCards == 1,
            "vegetation did not use source-textured upright natural card")
-    assert(fake.lastNaturalBoundaryCards == 1,
-           "canonical boulder did not use source-textured 3D boulder path")
+    assert((fake.lastOrganicTreeOffsets or 0) == 1,
+           "TEST12 tree projection variation was not exercised")
+    assert((fake.lastScaledTrees or 0) == 1,
+           "TEST12 tree scale tuning was not exercised")
+    assert((fake.lastFlattenedBoulders or 0) == 1,
+           "TEST12 canonical boulder was not intercepted by NaturalScale")
+    assert((fake.lastSlopedBoulders or 0) == 1,
+           "TEST12 boulder did not use the sloped mound geometry")
+    assert((fake.lastNaturalBoundaryCards or 0) == 0,
+           "TEST12 boulder fell through to the old octagonal natural form")
     assert((fake.lastNaturalCardFallbacks or 0) == 0,
            "natural forms unexpectedly fell back to old geometry")
     assert(fallbackVegetation == 0 and fallbackBoundary == 0,
