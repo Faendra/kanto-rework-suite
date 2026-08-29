@@ -1,0 +1,16 @@
+{
+  "id": "kanto_rework_building_first",
+  "name": "Kanto Rework — Building First HD-2D",
+  "version": "0.1.0-building01",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "UI",
+  "games": ["gen1"],
+  "game_version": ">=0.2.32 <0.3.0",
+  "priority": 170,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "permissions": [],
+  "description": "Building-first HD-2D renderer. BUILDING-01 recognizes Red's Pallet Town house semantically, builds explicit architectural geometry, and uses Gen1Recomp's runtime vanilla atlas only as material input. Gameplay remains Gen1Recomp-authoritative."
+}
