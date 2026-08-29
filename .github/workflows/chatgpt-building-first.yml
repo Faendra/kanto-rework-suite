@@ -6,22 +6,85 @@ on:
       - experiment/chatgpt-sol-building-first
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   lua51-contract:
+    name: Lua 5.1 + semantic contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install -y lua5.1
-      - name: Parse BUILDING-01 package with Lua 5.1
+      - name: Parse BUILDING-01 Lua
         run: |
           find packages/kanto_rework_building_first -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/building_first_semantic_test.lua
+          luac5.1 -p tests/building_first_loader_v0232.lua
+          luac5.1 -p tests/love_building_first_gate/main.lua
       - name: Semantic architecture gate
         run: lua5.1 tests/building_first_semantic_test.lua
+      - name: Validate manifest
+        run: |
+          python3 -m json.tool packages/kanto_rework_building_first/manifest.json >/dev/null
+          grep -F '"game_version": ">=0.2.32 <0.3.0"' packages/kanto_rework_building_first/manifest.json
       - name: Prohibit readback and historical polish dependencies
         run: |
           ! grep -R "newImageData" packages/kanto_rework_building_first
           ! grep -RE "SceneStyle|LivePolish|DioramaPolish|NaturalForms|NaturalScale|AtlasWorld|SceneContinuity|TerrainRemaster|LedgeTopology|LedgeHopSmoothing" packages/kanto_rework_building_first
-      - name: Pin compatibility contract to Gen1Recomp v0.2.32+
-        run: grep -F '"game_version": ">=0.2.32 <0.3.0"' packages/kanto_rework_building_first/manifest.json
+
+  gen1recomp-loader:
+    name: Gen1Recomp v0.2.32 BUILDING-01 loader
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LuaJIT
+        run: sudo apt-get update && sudo apt-get install -y luajit
+      - name: Checkout official Gen1Recomp v0.2.32
+        run: git clone --depth 1 --branch v0.2.32 https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
+      - name: Load through official mod loader and render twice
+        shell: bash
+        run: |
+          set -o pipefail
+          cd /tmp/gen1recomp
+          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_building_first" \
+            luajit "$GITHUB_WORKSPACE/tests/building_first_loader_v0232.lua" 2>&1 | tee "$GITHUB_WORKSPACE/building-first-loader.log"
+      - name: Upload loader diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: building-first-v0232-loader
+          path: building-first-loader.log
+          if-no-files-found: error
+          retention-days: 7
+
+  love-raw:
+    name: Real LÖVE BUILDING-01 raw raster
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LÖVE and virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y love xvfb
+          love --version
+      - name: Render raw building and occlusion probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_building_first_gate 2>&1 | tee building-first-love.log
+          find "$HOME/.local/share/love" -type f \( -name 'building-first-raw-front.png' -o -name 'building-first-raw-behind.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
+          test -s building-first-raw-front.png
+          test -s building-first-raw-behind.png
+      - name: Upload BUILDING-01 raw captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: building-first-raw-visual
+          path: |
+            building-first-love.log
+            building-first-raw-front.png
+            building-first-raw-behind.png
+          if-no-files-found: warn
+          retention-days: 7
