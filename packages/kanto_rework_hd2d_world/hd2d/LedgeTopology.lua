@@ -4,10 +4,8 @@ local CELL = 16
 local STEP_WORLD = 0.24
 
 -- Canonical Pokemon Red ledge rules from data/tilesets/ledge_tiles.asm.
--- A rule means: standing on `standing`, facing/input `dir`, with `ledge`
--- directly ahead => hop across the ledge and land one cell beyond it.
--- The standing side is therefore one logical terrain level above the landing
--- side. These are tile identities, never map-coordinate profiles.
+-- These rules are authoritative for one-way hop semantics only. They do NOT
+-- encode a global height-field for the rest of the map.
 local RULES = {
   { dir = "down",  standing = 0x2C, ledge = 0x37 },
   { dir = "down",  standing = 0x39, ledge = 0x36 },
@@ -25,17 +23,6 @@ local DELTA = {
 }
 
 local cache = setmetatable({}, { __mode = "k" })
-
-local function clamp(v, lo, hi)
-  if v < lo then return lo end
-  if v > hi then return hi end
-  return v
-end
-
-local function smoothstep(t)
-  t = clamp(t, 0, 1)
-  return t * t * (3 - 2 * t)
-end
 
 local function inBounds(map, x, y)
   if not map then return false end
@@ -92,6 +79,8 @@ local function build(map)
     end
   end
 
+  -- Keep segment grouping for diagnostics and future authored elevation data,
+  -- but never turn a segment into an infinite/semi-infinite map-wide level.
   local visited, segments = {}, {}
   for _, seed in ipairs(cells) do
     local sk = pointKey(seed.x, seed.y)
@@ -102,8 +91,7 @@ local function build(map)
         minY = seed.y, maxY = seed.y,
         cells = {},
       }
-      local queue = { seed }
-      local qi = 1
+      local queue, qi = { seed }, 1
       visited[sk] = true
       while queue[qi] do
         local cur = queue[qi]
@@ -145,96 +133,40 @@ local function topology(map)
   return cached
 end
 
--- Each contiguous ledge segment contributes exactly one logical level on its
--- standing/high side. The influence is restricted to the segment's span so a
--- short ledge does not fabricate a full-map cliff. Stacked ledges accumulate.
+-- TEST11 originally inferred a global height-field by extending every ledge
+-- segment to a map edge. Live footage proved that assumption invalid: small
+-- ledges could raise unrelated streets and whole strips of a town. Gen1Recomp
+-- exposes one-way hop rules, not persistent terrain elevation, so un-authored
+-- terrain remains level zero. Explicit elevation APIs can still be consumed by
+-- TerrainRemaster independently when they exist.
 function LedgeTopology.logicalLevel(map, cx, cy)
-  local level = 0
-  for _, seg in ipairs(topology(map).segments) do
-    if seg.dir == "down" then
-      if cx >= seg.minX and cx <= seg.maxX and cy <= seg.minY then
-        level = level + 1
-      end
-    elseif seg.dir == "up" then
-      if cx >= seg.minX and cx <= seg.maxX and cy >= seg.maxY then
-        level = level + 1
-      end
-    elseif seg.dir == "left" then
-      if cy >= seg.minY and cy <= seg.maxY and cx >= seg.maxX then
-        level = level + 1
-      end
-    elseif seg.dir == "right" then
-      if cy >= seg.minY and cy <= seg.maxY and cx <= seg.minX then
-        level = level + 1
-      end
-    end
-  end
-  return level
+  return 0
 end
 
 function LedgeTopology.worldZ(map, cx, cy)
-  return LedgeTopology.logicalLevel(map, cx, cy) * STEP_WORLD
+  return 0
 end
 
+-- A canonical ledge still has one visual level of local relief. The lip itself
+-- is rendered as a short atlas-textured face, but it no longer changes the Z of
+-- arbitrary terrain, actors, buildings or vegetation elsewhere on the map.
 function LedgeTopology.faceAt(map, cx, cy)
   local row = topology(map).byKey[pointKey(cx, cy)]
   if not row then return nil end
-  local d = DELTA[row.dir]
-  local lx, ly = cx + d[1], cy + d[2]
-  local upperLevel = LedgeTopology.logicalLevel(map, cx, cy)
-  local lowerLevel = LedgeTopology.logicalLevel(map, lx, ly)
-  if lowerLevel >= upperLevel then lowerLevel = upperLevel - 1 end
   return {
     dir = row.dir,
-    upperLevel = upperLevel,
-    lowerLevel = lowerLevel,
-    upperZ = upperLevel * STEP_WORLD,
-    lowerZ = lowerLevel * STEP_WORLD,
+    upperLevel = 1,
+    lowerLevel = 0,
+    upperZ = STEP_WORLD,
+    lowerZ = 0,
   }
 end
 
--- Player:pose() already supplies the vanilla sine hop as sprite lift. This
--- helper only smooths the TERRAIN baseline beneath that arc. A Gen I ledge
--- hop is exactly two cells: first step reaches the ledge tile while remaining
--- on the upper terrace, second step crosses the edge and lands one level down.
--- Keeping the baseline high for the first half and easing it down over the
--- second half prevents the renderer from snapping one full level when the
--- actor's feet first enter the landing cell.
+-- Player:pose() already provides the canonical sine hop arc and Gen1Recomp's
+-- movement controller owns the real two-cell landing. Without an authored
+-- persistent height-field there is no safe extra baseline-Z transition to add.
 function LedgeTopology.hopWorldZ(map, actor)
-  if not (map and actor and actor.ledgeHop
-          and type(actor.hopFrames) == "number"
-          and type(actor.hopTotal) == "number"
-          and actor.hopTotal > 0
-          and type(actor.px) == "number"
-          and type(actor.py) == "number") then
-    return nil
-  end
-
-  local d = DELTA[actor.facing]
-  if not d then return nil end
-
-  local t = clamp(1 - actor.hopFrames / actor.hopTotal, 0, 1)
-  -- Movement and hop counters advance on the same fixed 60 Hz update. Recover
-  -- the original cell from the actor's interpolated 2-cell displacement; the
-  -- rounding absorbs Player:update's integer-pixel quantisation.
-  local travelled = 2 * CELL * t
-  local startPx = actor.px - d[1] * travelled
-  local startPy = actor.py - d[2] * travelled
-  local startX = math.floor(startPx / CELL + 0.5)
-  local startY = math.floor(startPy / CELL + 0.5)
-  local landX = startX + d[1] * 2
-  local landY = startY + d[2] * 2
-
-  if not (inBounds(map, startX, startY) and inBounds(map, landX, landY)) then
-    return nil
-  end
-
-  local highZ = LedgeTopology.worldZ(map, startX, startY)
-  local lowZ = LedgeTopology.worldZ(map, landX, landY)
-  if math.abs(highZ - lowZ) < 0.00001 then return nil end
-
-  local descend = smoothstep((t - 0.5) * 2)
-  return highZ + (lowZ - highZ) * descend, t, highZ, lowZ
+  return nil
 end
 
 function LedgeTopology.segments(map)
