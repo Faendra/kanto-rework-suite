@@ -10,10 +10,17 @@ local OUTDOOR = {
   PLATEAU = true,
 }
 
-local function variation(cmd)
+local ROCK_SHAPE = {
+  { -0.22, -0.44 }, { 0.20, -0.42 },
+  { 0.44, -0.19 }, { 0.40, 0.24 },
+  { 0.18, 0.43 }, { -0.25, 0.40 },
+  { -0.45, 0.17 }, { -0.40, -0.22 },
+}
+
+local function variation(cmd, salt)
   local x = math.floor(tonumber(cmd and cmd.x) or 0)
   local y = math.floor(tonumber(cmd and cmd.y) or 0)
-  return ((x * 23 + y * 31) % 7) / 6
+  return ((x * 37 + y * 53 + (salt or 0) * 19) % 101) / 100
 end
 
 local function localCell(cmd)
@@ -27,6 +34,14 @@ end
 
 local function isOutdoor(map)
   return OUTDOOR[map and map.def and map.def.tileset] == true
+end
+
+local function copyCommand(cmd, dx, dy)
+  local out = {}
+  for k, v in pairs(cmd or {}) do out[k] = v end
+  out.x = (tonumber(cmd and cmd.x) or 0) + (dx or 0)
+  out.y = (tonumber(cmd and cmd.y) or 0) + (dy or 0)
+  return out
 end
 
 local function scaledProjection(proj, scaleFactor)
@@ -56,6 +71,98 @@ local function drawFlatAtlasDecal(renderer, proj, cmd, topColor)
   return renderer:drawTexturedQuad(proj, cmd.x, cmd.y, 0.006, rect, topColor)
 end
 
+local function heightForScreen(proj, cx, cy, targetPixels, fallback)
+  if not (proj and type(proj.cell) == "function") then return fallback end
+  local _, baseY = proj:cell(cx, cy, 0.006)
+  if type(baseY) ~= "number" then return fallback end
+  local lo, hi = 0.015, 1.20
+  for _ = 1, 10 do
+    local mid = (lo + hi) * 0.5
+    local _, topY = proj:cell(cx, cy, mid)
+    if type(topY) ~= "number" then return fallback end
+    if math.abs(baseY - topY) < targetPixels then lo = mid else hi = mid end
+  end
+  return (lo + hi) * 0.5
+end
+
+local function ensureRockMesh(renderer)
+  if renderer.naturalScaleRockMesh then return renderer.naturalScaleRockMesh end
+  if not (love and love.graphics and love.graphics.newMesh) then return nil end
+  local seed = {}
+  for i = 1, #ROCK_SHAPE do
+    seed[i] = { 0, 0, 0, 0, 1, 1, 1, 1 }
+  end
+  local ok, mesh = pcall(love.graphics.newMesh, seed, "fan", "dynamic")
+  if not ok then return nil end
+  renderer.naturalScaleRockMesh = mesh
+  return mesh
+end
+
+local function drawSlopedRock(renderer, proj, cmd)
+  local texture = cmd and cmd.atlasTexture
+  local mesh = texture and ensureRockMesh(renderer) or nil
+  if not (mesh and mesh.setVertices and mesh.setTexture) then return false end
+
+  local v = variation(cmd, 1)
+  local skew = variation(cmd, 2) - 0.5
+  local cx, cy = cmd.x + 0.5, cmd.y + 0.51
+  local scale = proj.screenScale and proj:screenScale(cx, cy, 0) or proj.tileW or 1
+  local targetRise = scale * (0.075 + v * 0.025)
+  local height = heightForScreen(proj, cx, cy, targetRise, 0.14)
+  local footprint = 0.91 + v * 0.05
+  local inset = 0.58 + variation(cmd, 3) * 0.09
+  local topShiftX = skew * 0.055
+  local topShiftY = -0.035 - variation(cmd, 4) * 0.025
+  local base, top = {}, {}
+
+  for i, p in ipairs(ROCK_SHAPE) do
+    local bwx = cx + p[1] * footprint
+    local bwy = cy + p[2] * footprint
+    local twx = cx + p[1] * footprint * inset + topShiftX
+    local twy = cy + p[2] * footprint * inset + topShiftY
+    local bx, by = proj:cell(bwx, bwy, 0.006)
+    local tx, ty = proj:cell(twx, twy, height)
+    base[i] = { bx, by }
+    top[i] = { tx, ty }
+  end
+
+  local sx, sy = proj:cell(cx, cy, 0.003)
+  love.graphics.setColor(0, 0, 0, 0.15)
+  love.graphics.ellipse("fill", sx, sy + 1, scale * 0.35, scale * 0.095)
+
+  local edges = {}
+  for i = 1, #ROCK_SHAPE do
+    local j = i % #ROCK_SHAPE + 1
+    edges[#edges + 1] = { i = i, j = j,
+      score = (base[i][2] + base[j][2]) * 0.5 }
+  end
+  table.sort(edges, function(a, b) return a.score > b.score end)
+  for n = 1, 5 do
+    local e = edges[n]
+    local shade = 0.31 + (n - 1) * 0.022
+    love.graphics.setColor(shade, shade * 1.025, shade * 1.01, 1)
+    love.graphics.polygon("fill",
+      base[e.i][1], base[e.i][2], base[e.j][1], base[e.j][2],
+      top[e.j][1], top[e.j][2], top[e.i][1], top[e.i][2])
+  end
+
+  local vertices = {}
+  for i, p in ipairs(ROCK_SHAPE) do
+    vertices[i] = {
+      top[i][1], top[i][2], p[1] + 0.5, p[2] + 0.5,
+      1, 1, 1, 1,
+    }
+  end
+  local ok = pcall(function()
+    mesh:setVertices(vertices)
+    mesh:setTexture(texture)
+  end)
+  if not ok then return false end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(mesh)
+  return true
+end
+
 function NaturalScale.apply(renderer)
   if not renderer or renderer.__naturalScaleApplied then return renderer end
   renderer.__naturalScaleApplied = true
@@ -66,17 +173,32 @@ function NaturalScale.apply(renderer)
     self.lastScaledTrees = 0
     self.lastFlattenedBoulders = 0
     self.lastGroundedGenericBoundaries = 0
+    self.lastOrganicTreeOffsets = 0
+    self.lastSlopedBoulders = 0
+  end
+
+  local baseInvalidate = renderer.invalidate
+  renderer.invalidate = function(self)
+    if self.naturalScaleRockMesh and self.naturalScaleRockMesh.release then
+      pcall(self.naturalScaleRockMesh.release, self.naturalScaleRockMesh)
+    end
+    self.naturalScaleRockMesh = nil
+    return baseInvalidate(self)
   end
 
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
-    local v = variation(cmd)
-    -- TEST8 live capture showed one-cell trees reading as a tall repeated wall.
-    -- Keep their exact pixel silhouette but reduce screen height and introduce a
-    -- tiny deterministic variation so long borders do not read as cloned posts.
-    local factor = 0.70 + v * 0.045
+    -- Preserve the exact vanilla silhouette but break the repeated fence-post
+    -- read with sub-cell render-only offsets and a tiny deterministic scale
+    -- variation. Collision/map coordinates remain untouched.
+    local v = variation(cmd, 0)
+    local dx = (variation(cmd, 5) - 0.5) * 0.090
+    local dy = (variation(cmd, 6) - 0.5) * 0.040
+    local factor = (0.70 + v * 0.045) * (0.955 + variation(cmd, 7) * 0.085)
     self.lastScaledTrees = (self.lastScaledTrees or 0) + 1
-    return baseDrawVegetation(self, scaledProjection(proj, factor), cmd)
+    self.lastOrganicTreeOffsets = (self.lastOrganicTreeOffsets or 0) + 1
+    return baseDrawVegetation(self, scaledProjection(proj, factor),
+                              copyCommand(cmd, dx, dy))
   end
 
   local baseDrawLowPrism = renderer.drawLowPrism
@@ -84,25 +206,27 @@ function NaturalScale.apply(renderer)
     local map, cx, cy = localCell(cmd)
     local motif = map and VanillaMotifs.cellMotif(map, cx, cy) or nil
     if motif == "boulder" then
-      -- The boulder top texture is already correct; only its vertical relief was
-      -- excessive. Reduce screen-space rise while preserving the footprint.
+      -- TEST11 live footage showed the former equal-footprint extrusion reading
+      -- as a puck/cylinder. The atlas top is now inset and shifted over a wider
+      -- base, creating sloped faces and an irregular low rock mound.
       self.lastFlattenedBoulders = (self.lastFlattenedBoulders or 0) + 1
-      return baseDrawLowPrism(self, scaledProjection(proj, 0.52),
+      if cmd and cmd.atlasTexture and drawSlopedRock(self, proj, cmd) then
+        self.lastSlopedBoulders = (self.lastSlopedBoulders or 0) + 1
+        return true
+      end
+      return baseDrawLowPrism(self, scaledProjection(proj, 0.42),
                               cmd, height, topColor)
     end
 
-    -- TEST9 live capture exposed the remaining long grey walls: every outdoor
-    -- boundary/obstacle that was not a canonical tree/boulder still fell back to
-    -- SceneRenderer:drawLowPrism, which invents south/east rock faces. Unknown
-    -- natural cells have no evidence of vertical topology, so preserve their
-    -- atlas pixels as a near-ground decal instead of fabricating a wall.
+    -- Unknown outdoor boundary/obstacle cells have no evidence of vertical
+    -- topology. Preserve their atlas pixels as a near-ground decal instead of
+    -- fabricating a grey wall.
     if map and isOutdoor(map) and motif == nil then
       if drawFlatAtlasDecal(self, proj, cmd, topColor) then
         self.lastGroundedGenericBoundaries =
           (self.lastGroundedGenericBoundaries or 0) + 1
         return true
       end
-      -- Compatibility path without a runtime atlas: suppress vertical height.
       self.lastGroundedGenericBoundaries =
         (self.lastGroundedGenericBoundaries or 0) + 1
       return baseDrawLowPrism(self, proj, cmd, 0.004, topColor)
