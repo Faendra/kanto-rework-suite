@@ -52,6 +52,7 @@ local AtlasSource = loadLocal("hd2d.AtlasSource", "hd2d/AtlasSource.lua")
 local AtlasWorld = loadLocal("hd2d.AtlasWorld", "hd2d/AtlasWorld.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
 local TerrainRemaster = loadLocal("hd2d.TerrainRemaster", "hd2d/TerrainRemaster.lua")
+local LedgeHopSmoothing = loadLocal("hd2d.LedgeHopSmoothing", "hd2d/LedgeHopSmoothing.lua")
 local WorldAtmosphere = loadLocal("hd2d.WorldAtmosphere", "hd2d/WorldAtmosphere.lua")
 
 -- Keep the previous modules loadable/exported during the transition so saved
@@ -86,6 +87,10 @@ renderer = SceneContinuity.apply(renderer)
 -- coplanar; only explicit map elevation or canonical one-way ledges generate
 -- height. LedgeTopology derives those levels from vanilla tile relations.
 renderer = TerrainRemaster.apply(renderer)
+-- Player:pose() already owns the vanilla ledge-hop sine arc. This final wrapper
+-- only smooths the terrain baseline from the upper terrace to the lower one so
+-- the actor cannot snap by a full level when its feet enter the landing cell.
+renderer = LedgeHopSmoothing.apply(renderer)
 
 local atmosphere = WorldAtmosphere.new()
 
@@ -106,7 +111,8 @@ local function playerFocusY(canvas, ctx)
   if not ok or not proj then return nil end
   local wx, wy = player.px + 8, player.py + 12
   local scenes = renderer:scenes(ctx.state)
-  local surfaceZ = renderer:surfaceZForWorld(scenes, wx, wy)
+  local surfaceZ = LedgeTopology.hopWorldZ(ctx.state.map, player)
+      or renderer:surfaceZForWorld(scenes, wx, wy)
   local _, sy = proj:worldPixel(wx, wy, surfaceZ)
   local h = canvas.getHeight and canvas:getHeight() or 0
   if type(sy) ~= "number" or h <= 0 then return nil end
@@ -120,6 +126,7 @@ mod.exports.sceneStyle = SceneStyle
 mod.exports.livePolish = LivePolish
 mod.exports.vanillaMotifs = VanillaMotifs
 mod.exports.ledgeTopology = LedgeTopology
+mod.exports.ledgeHopSmoothing = LedgeHopSmoothing
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
 mod.exports.naturalScale = NaturalScale
