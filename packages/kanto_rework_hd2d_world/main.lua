@@ -50,6 +50,7 @@ local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
 local NaturalScale = loadLocal("hd2d.NaturalScale", "hd2d/NaturalScale.lua")
 local AtlasSource = loadLocal("hd2d.AtlasSource", "hd2d/AtlasSource.lua")
 local AtlasWorld = loadLocal("hd2d.AtlasWorld", "hd2d/AtlasWorld.lua")
+local NaturalShapePolish = loadLocal("hd2d.NaturalShapePolish", "hd2d/NaturalShapePolish.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
 local TerrainRemaster = loadLocal("hd2d.TerrainRemaster", "hd2d/TerrainRemaster.lua")
 local LedgeHopSmoothing = loadLocal("hd2d.LedgeHopSmoothing", "hd2d/LedgeHopSmoothing.lua")
@@ -82,6 +83,10 @@ renderer = NaturalScale.apply(renderer)
 -- walkable terrain and natural scene objects. Capture remains a compatibility
 -- fallback for engines/tests that do not expose image/quads.
 renderer = AtlasWorld.apply(renderer, AtlasSource)
+-- TEST11 live footage leaves natural repetition as the dominant visual issue.
+-- Keep the verified atlas pixels, but break cloned tree spacing very slightly
+-- and replace cylindrical boulder slabs with low sloped rock mounds.
+renderer = NaturalShapePolish.apply(renderer)
 renderer = SceneContinuity.apply(renderer)
 -- TerrainRemaster owns true surface Z. Semantic lawn/path categories remain
 -- coplanar; only explicit map elevation or canonical one-way ledges generate
@@ -130,6 +135,7 @@ mod.exports.ledgeHopSmoothing = LedgeHopSmoothing
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
 mod.exports.naturalScale = NaturalScale
+mod.exports.naturalShapePolish = NaturalShapePolish
 mod.exports.atlasSource = AtlasSource
 mod.exports.atlasWorld = AtlasWorld
 mod.exports.sceneContinuity = SceneContinuity
