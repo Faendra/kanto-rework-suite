@@ -26,6 +26,17 @@ local DELTA = {
 
 local cache = setmetatable({}, { __mode = "k" })
 
+local function clamp(v, lo, hi)
+  if v < lo then return lo end
+  if v > hi then return hi end
+  return v
+end
+
+local function smoothstep(t)
+  t = clamp(t, 0, 1)
+  return t * t * (3 - 2 * t)
+end
+
 local function inBounds(map, x, y)
   if not map then return false end
   if type(map.inBounds) == "function" then
@@ -182,6 +193,50 @@ function LedgeTopology.faceAt(map, cx, cy)
   }
 end
 
+-- Player:pose() already supplies the vanilla sine hop as sprite lift. This
+-- helper only smooths the TERRAIN baseline beneath that arc. A Gen I ledge
+-- hop is exactly two cells: first step reaches the ledge tile while remaining
+-- on the upper terrace, second step crosses the edge and lands one level down.
+-- Keeping the baseline high for the first half and easing it down over the
+-- second half prevents the renderer from snapping one full level when the
+-- actor's feet first enter the landing cell.
+function LedgeTopology.hopWorldZ(map, actor)
+  if not (map and actor and actor.ledgeHop
+          and type(actor.hopFrames) == "number"
+          and type(actor.hopTotal) == "number"
+          and actor.hopTotal > 0
+          and type(actor.px) == "number"
+          and type(actor.py) == "number") then
+    return nil
+  end
+
+  local d = DELTA[actor.facing]
+  if not d then return nil end
+
+  local t = clamp(1 - actor.hopFrames / actor.hopTotal, 0, 1)
+  -- Movement and hop counters advance on the same fixed 60 Hz update. Recover
+  -- the original cell from the actor's interpolated 2-cell displacement; the
+  -- rounding absorbs Player:update's integer-pixel quantisation.
+  local travelled = 2 * CELL * t
+  local startPx = actor.px - d[1] * travelled
+  local startPy = actor.py - d[2] * travelled
+  local startX = math.floor(startPx / CELL + 0.5)
+  local startY = math.floor(startPy / CELL + 0.5)
+  local landX = startX + d[1] * 2
+  local landY = startY + d[2] * 2
+
+  if not (inBounds(map, startX, startY) and inBounds(map, landX, landY)) then
+    return nil
+  end
+
+  local highZ = LedgeTopology.worldZ(map, startX, startY)
+  local lowZ = LedgeTopology.worldZ(map, landX, landY)
+  if math.abs(highZ - lowZ) < 0.00001 then return nil end
+
+  local descend = smoothstep((t - 0.5) * 2)
+  return highZ + (lowZ - highZ) * descend, t, highZ, lowZ
+end
+
 function LedgeTopology.segments(map)
   return topology(map).segments
 end
@@ -193,5 +248,6 @@ end
 LedgeTopology.RULES = RULES
 LedgeTopology.STEP_WORLD = STEP_WORLD
 LedgeTopology.CELL = CELL
+LedgeTopology.DELTA = DELTA
 
 return LedgeTopology
