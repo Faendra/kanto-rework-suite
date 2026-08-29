@@ -50,7 +50,6 @@ local NaturalForms = loadLocal("hd2d.NaturalForms", "hd2d/NaturalForms.lua")
 local NaturalScale = loadLocal("hd2d.NaturalScale", "hd2d/NaturalScale.lua")
 local AtlasSource = loadLocal("hd2d.AtlasSource", "hd2d/AtlasSource.lua")
 local AtlasWorld = loadLocal("hd2d.AtlasWorld", "hd2d/AtlasWorld.lua")
-local NaturalShapePolish = loadLocal("hd2d.NaturalShapePolish", "hd2d/NaturalShapePolish.lua")
 local SceneContinuity = loadLocal("hd2d.SceneContinuity", "hd2d/SceneContinuity.lua")
 local TerrainRemaster = loadLocal("hd2d.TerrainRemaster", "hd2d/TerrainRemaster.lua")
 local LedgeHopSmoothing = loadLocal("hd2d.LedgeHopSmoothing", "hd2d/LedgeHopSmoothing.lua")
@@ -74,19 +73,15 @@ renderer = LivePolish.apply(renderer)
 VanillaMotifs.install(MaterialClassifier)
 renderer = DioramaPolish.apply(renderer)
 renderer = NaturalForms.apply(renderer)
--- TEST8 live capture proved the canonical forms were correct but oversized:
--- preserve their vanilla pixels while reducing repeated tree-wall height and
--- flattening boulder relief before atlas textures are injected.
+-- NaturalScale preserves exact vanilla pixels while applying the live-tested
+-- natural-form tuning: reduced tree-wall height, tiny render-only tree spacing
+-- variation, and low sloped boulder mounds instead of cylindrical pucks.
 renderer = NaturalScale.apply(renderer)
 -- Gen1Recomp already keeps the exact generated 8x8 tileset atlas on each map
 -- renderer. Prefer that source over a captured flat-map framebuffer for all
 -- walkable terrain and natural scene objects. Capture remains a compatibility
 -- fallback for engines/tests that do not expose image/quads.
 renderer = AtlasWorld.apply(renderer, AtlasSource)
--- TEST11 live footage leaves natural repetition as the dominant visual issue.
--- Keep the verified atlas pixels, but break cloned tree spacing very slightly
--- and replace cylindrical boulder slabs with low sloped rock mounds.
-renderer = NaturalShapePolish.apply(renderer)
 renderer = SceneContinuity.apply(renderer)
 -- TerrainRemaster owns true surface Z. Semantic lawn/path categories remain
 -- coplanar; only explicit map elevation or canonical one-way ledges generate
@@ -135,7 +130,6 @@ mod.exports.ledgeHopSmoothing = LedgeHopSmoothing
 mod.exports.dioramaPolish = DioramaPolish
 mod.exports.naturalForms = NaturalForms
 mod.exports.naturalScale = NaturalScale
-mod.exports.naturalShapePolish = NaturalShapePolish
 mod.exports.atlasSource = AtlasSource
 mod.exports.atlasWorld = AtlasWorld
 mod.exports.sceneContinuity = SceneContinuity
