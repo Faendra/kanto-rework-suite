@@ -22,6 +22,7 @@ jobs:
           find packages/kanto_rework_building_first -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/building_first_semantic_test.lua
           luac5.1 -p tests/building_first_loader_v0232.lua
+          luac5.1 -p tests/building_first_loader_v0232_headless.lua
           luac5.1 -p tests/love_building_first_gate/main.lua
       - name: Semantic architecture gate
         run: lua5.1 tests/building_first_semantic_test.lua
@@ -48,8 +49,9 @@ jobs:
         run: |
           set -o pipefail
           cd /tmp/gen1recomp
+          KRS_ROOT="$GITHUB_WORKSPACE" \
           KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_building_first" \
-            luajit "$GITHUB_WORKSPACE/tests/building_first_loader_v0232.lua" 2>&1 | tee "$GITHUB_WORKSPACE/building-first-loader.log"
+            luajit "$GITHUB_WORKSPACE/tests/building_first_loader_v0232_headless.lua" 2>&1 | tee "$GITHUB_WORKSPACE/building-first-loader.log"
       - name: Upload loader diagnostic
         if: always()
         uses: actions/upload-artifact@v4
