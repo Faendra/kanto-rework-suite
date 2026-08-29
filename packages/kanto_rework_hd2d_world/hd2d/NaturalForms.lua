@@ -93,8 +93,6 @@ local function cardVertices(proj, x, y, height, width)
   return out, bx, by, scale
 end
 
--- Legacy compatibility fallback. TEST8's nominal tree path below no longer
--- warps the 16x16 vanilla cell through this octagonal mesh.
 local function drawTexturedCard(renderer, proj, cmd,
                                 screenHeightRatio, width, tint, fallbackHeight)
   local rect = sourceRect(renderer, cmd.x, cmd.y)
@@ -143,27 +141,38 @@ local function luminance(r, g, b)
   return (r + g + b) / 3
 end
 
-local function cropSourceImageData(renderer, cmd)
+-- Compute the silhouette-cache key without touching GPU pixel data. In the
+-- direct-atlas path identical tile quartets share one cached 16x16 Canvas, so
+-- this lookup normally collapses an entire row of trees to one ImageData
+-- readback for the lifetime of the atlas texture.
+local function silhouetteSource(renderer, cmd)
   local source = renderer and renderer.source
   local rect = source and cmd and sourceRect(renderer, cmd.x, cmd.y) or nil
+  if not (source and rect) then return nil end
+  local sx, sy = math.floor(rect[1]), math.floor(rect[2])
+  local key = string.format("%s:%d:%d", tostring(source), sx, sy)
+  return source, rect, key
+end
+
+local function cropSourceImageData(source, rect)
   if not (source and rect and source.newImageData
           and love and love.image and love.image.newImageData) then
-    return nil, nil
+    return nil
   end
 
   local ok, full = pcall(source.newImageData, source)
-  if not ok or not full then return nil, nil end
+  if not ok or not full then return nil end
   local fw, fh = full:getDimensions()
   local sx, sy = math.floor(rect[1]), math.floor(rect[2])
   if sx < 0 or sy < 0 or sx + CELL > fw or sy + CELL > fh then
     safeRelease(full)
-    return nil, nil
+    return nil
   end
 
   local cropOk, data = pcall(love.image.newImageData, CELL, CELL)
   if not cropOk or not data then
     safeRelease(full)
-    return nil, nil
+    return nil
   end
   for y = 0, CELL - 1 do
     for x = 0, CELL - 1 do
@@ -171,24 +180,25 @@ local function cropSourceImageData(renderer, cmd)
     end
   end
   safeRelease(full)
-  return data, string.format("%s:%d:%d", tostring(source), sx, sy)
+  return data
 end
 
--- Build a one-time alpha mask from the exact 16x16 runtime atlas cell.
--- We intentionally do NOT clear every edge-connected pixel: the canonical Red
--- tree touches the cell border with dark foliage. Only bright background pixels
--- connected to the outer edge are removed, preserving disconnected highlights
--- and all dark silhouette pixels even when they meet the border.
 local function silhouetteTexture(renderer, cmd)
   renderer.naturalSilhouetteCache = renderer.naturalSilhouetteCache or {}
 
-  local data, key = cropSourceImageData(renderer, cmd)
-  if not data or not key then return nil, 0 end
+  local source, rect, key = silhouetteSource(renderer, cmd)
+  if not source or not key then return nil, 0 end
   local cached = renderer.naturalSilhouetteCache[key]
   if cached then
-    safeRelease(data)
+    renderer.lastNaturalSilhouetteCacheHits =
+      (renderer.lastNaturalSilhouetteCacheHits or 0) + 1
     return cached.image, cached.cleared or 0
   end
+
+  local data = cropSourceImageData(source, rect)
+  if not data then return nil, 0 end
+  renderer.lastNaturalSilhouetteReadbacks =
+    (renderer.lastNaturalSilhouetteReadbacks or 0) + 1
 
   local w, h = data:getDimensions()
   local visited = {}
@@ -366,6 +376,8 @@ function NaturalForms.apply(renderer)
     self.lastNaturalCardFallbacks = 0
     self.lastNaturalSilhouetteBillboards = 0
     self.lastNaturalSilhouettePixelsCleared = 0
+    self.lastNaturalSilhouetteReadbacks = 0
+    self.lastNaturalSilhouetteCacheHits = 0
   end
 
   local baseInvalidate = renderer.invalidate
@@ -385,10 +397,6 @@ function NaturalForms.apply(renderer)
 
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
-    -- Preserve the canonical 16x16 Red tree silhouette instead of forcing the
-    -- source pixels through the old octagonal card. Perspective changes only
-    -- the uniform screen scale; the sprite's aspect ratio and pixel geometry
-    -- remain intact.
     local ratio = ({ 1.28, 1.55, 1.82 })[proj.level] or 1.55
     if drawPixelBillboard(self, proj, cmd, ratio,
                           { 0.98, 1.00, 0.97 }) then
@@ -397,7 +405,6 @@ function NaturalForms.apply(renderer)
       return true
     end
 
-    -- Compatibility only for surfaces that cannot expose ImageData.
     local v = variation(cmd)
     ratio = ratio * (0.98 + v * 0.03)
     local width = ({ 0.94, 1.02, 1.08 })[proj.level] or 1.02
@@ -416,7 +423,6 @@ function NaturalForms.apply(renderer)
 
   local baseDrawLowPrism = renderer.drawLowPrism
   renderer.drawLowPrism = function(self, proj, cmd, height, topColor)
-    -- Only the verified canonical boulder motif receives this 3D rock path.
     if motifForCommand(cmd) == "boulder" then
       local v = variation(cmd)
       if drawTexturedBoulder(self, proj, cmd, v) then
