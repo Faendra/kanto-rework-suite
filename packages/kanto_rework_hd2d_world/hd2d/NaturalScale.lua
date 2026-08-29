@@ -100,6 +100,7 @@ local function ensureRockMesh(renderer)
 end
 
 local function drawSlopedRock(renderer, proj, cmd)
+  if not (proj and type(proj.cell) == "function") then return false end
   local texture = cmd and cmd.atlasTexture
   local mesh = texture and ensureRockMesh(renderer) or nil
   if not (mesh and mesh.setVertices and mesh.setTexture) then return false end
