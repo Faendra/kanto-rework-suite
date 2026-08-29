@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.2.8-cphd2d13-test10",
+  "version": "0.2.9-cphd2d14-test11",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS HD-2D TEST10 staging: direct runtime-atlas reconstruction with continuous outdoor ground; no semantic lawn/path elevation walls; generic outdoor boundary/obstacle cells grounded as atlas decals instead of fabricated grey prisms; canonical boulders remain low 3D forms; reduced aspect-preserving vanilla tree silhouettes; perspective actors, volumetric architecture and interior dollhouse shells. Gameplay remains Gen1Recomp-authoritative."
+  "description": "KRS HD-2D TEST11: direct runtime-atlas reconstruction with canonical one-way ledges converted into real stacked terrain levels; low atlas-textured ledge faces; smooth upper-to-lower terrain baseline during vanilla two-cell ledge hops; generic outdoor boundaries remain grounded instead of fabricated walls; reduced vanilla tree silhouettes, low boulders, perspective actors, volumetric architecture and interior dollhouse shells. Gameplay remains Gen1Recomp-authoritative."
 }
