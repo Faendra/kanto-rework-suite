@@ -56,7 +56,7 @@ jobs:
         run: lua5.1 tests/hd2d_scene_contract.lua
 
   gen1recomp-loader:
-    name: Gen1Recomp v0.2.32 TEST11 loader
+    name: Gen1Recomp v0.2.32 TEST12 loader
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -68,23 +68,23 @@ jobs:
       - name: Checkout Gen1Recomp v0.2.32
         run: |
           git clone --depth 1 --branch v0.2.32 https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
-      - name: Load TEST11 through official mod loader
+      - name: Load TEST12 through official mod loader
         shell: bash
         run: |
           set -o pipefail
           cd /tmp/gen1recomp
-          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test9.lua" 2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader-test11.log"
+          KRS_PACKAGE_DIR="$GITHUB_WORKSPACE/packages/kanto_rework_hd2d_world" luajit "$GITHUB_WORKSPACE/tests/hd2d_scene_loader_test9.lua" 2>&1 | tee "$GITHUB_WORKSPACE/hd2d-scene-loader-test12.log"
       - name: Upload loader diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test11-loader-diagnostic
-          path: hd2d-scene-loader-test11.log
+          name: chatgpt-hd2d-test12-loader-diagnostic
+          path: hd2d-scene-loader-test12.log
           if-no-files-found: error
           retention-days: 7
 
   love-scene:
-    name: Real LÖVE TEST11 visual
+    name: Real LÖVE TEST12 visual
     runs-on: ubuntu-latest
     steps:
       - name: Checkout KRS
@@ -109,7 +109,7 @@ jobs:
         run: |
           set -o pipefail
           KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_live_polish_gate 2>&1 | tee hd2d-love-live-polish.log
-      - name: Require vanilla-aware natural forms and seam-safe actors
+      - name: Require organic vanilla natural forms and seam-safe actors
         shell: bash
         run: |
           set -euo pipefail
@@ -133,7 +133,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test9_atlas_gate 2>&1 | tee hd2d-love-test11-atlas.log
+          KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_hd2d_test9_atlas_gate 2>&1 | tee hd2d-love-test12-atlas.log
           find "$HOME/.local/share/love" -type f \( -name 'hd2d-test9-atlas-raw.png' -o -name 'hd2d-test9-atlas-depth.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-test9-atlas-raw.png
           test -s hd2d-test9-atlas-depth.png
@@ -153,11 +153,11 @@ jobs:
           find "$HOME/.local/share/love" -type f \( -name 'hd2d-scene-raw.png' -o -name 'hd2d-scene-depth.png' \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s hd2d-scene-raw.png
           test -s hd2d-scene-depth.png
-      - name: Upload real-LÖVE TEST11 diagnostics
+      - name: Upload real-LÖVE TEST12 diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test11-visual-gate
+          name: chatgpt-hd2d-test12-visual-gate
           path: |
             hd2d-love-shader.log
             hd2d-love-style.log
@@ -165,7 +165,7 @@ jobs:
             hd2d-love-natural-forms.log
             hd2d-love-test10-boundary.log
             hd2d-love-test11-ledge.log
-            hd2d-love-test11-atlas.log
+            hd2d-love-test12-atlas.log
             hd2d-love-test5.log
             hd2d-love-scene.log
             hd2d-natural-forms.png
@@ -183,13 +183,13 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    name: Package validated TEST11 build
+    name: Package validated TEST12 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout validated KRS head
         uses: actions/checkout@v4
-      - name: Verify TEST11 manifest
+      - name: Verify TEST12 manifest
         shell: bash
         run: |
           set -euo pipefail
@@ -198,25 +198,25 @@ jobs:
           from pathlib import Path
           data = json.loads(Path('packages/kanto_rework_hd2d_world/manifest.json').read_text(encoding='utf-8'))
           assert data['id'] == 'kanto_rework_hd2d_world'
-          assert data['version'] == '0.2.9-cphd2d14-test11'
+          assert data['version'] == '0.2.10-cphd2d15-test12'
           assert data['game_version'] == '>=0.2.32 <0.3.0'
           PY
-      - name: Build installable TEST11 archive
+      - name: Build installable TEST12 archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           cd packages
-          zip -r ../dist/kanto_rework_hd2d_world-cphd2d14-test11.zip kanto_rework_hd2d_world -x '*/.DS_Store' '*/Thumbs.db'
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d15-test12.zip kanto_rework_hd2d_world -x '*/.DS_Store' '*/Thumbs.db'
           cd ..
-          sha256sum dist/kanto_rework_hd2d_world-cphd2d14-test11.zip | tee dist/kanto_rework_hd2d_world-cphd2d14-test11.sha256
-          test -s dist/kanto_rework_hd2d_world-cphd2d14-test11.zip
-      - name: Upload TEST11 build
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d15-test12.zip | tee dist/kanto_rework_hd2d_world-cphd2d15-test12.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d15-test12.zip
+      - name: Upload TEST12 build
         uses: actions/upload-artifact@v4
         with:
-          name: chatgpt-hd2d-test11-build
+          name: chatgpt-hd2d-test12-build
           path: |
-            dist/kanto_rework_hd2d_world-cphd2d14-test11.zip
-            dist/kanto_rework_hd2d_world-cphd2d14-test11.sha256
+            dist/kanto_rework_hd2d_world-cphd2d15-test12.zip
+            dist/kanto_rework_hd2d_world-cphd2d15-test12.sha256
           if-no-files-found: error
           retention-days: 14
