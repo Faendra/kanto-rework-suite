@@ -183,9 +183,40 @@ jobs:
           retention-days: 7
 
   package-live-test:
-    name: Package TEST11 (disabled until ledge visual acceptance)
-    if: ${{ false }}
+    name: Package validated TEST11 build
     needs: [syntax-contracts, gen1recomp-loader, love-scene]
     runs-on: ubuntu-latest
     steps:
-      - run: echo "TEST11 packaging intentionally held until ledge raster is inspected"
+      - name: Checkout validated KRS head
+        uses: actions/checkout@v4
+      - name: Verify TEST11 manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('packages/kanto_rework_hd2d_world/manifest.json').read_text(encoding='utf-8'))
+          assert data['id'] == 'kanto_rework_hd2d_world'
+          assert data['version'] == '0.2.9-cphd2d14-test11'
+          assert data['game_version'] == '>=0.2.32 <0.3.0'
+          PY
+      - name: Build installable TEST11 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd packages
+          zip -r ../dist/kanto_rework_hd2d_world-cphd2d14-test11.zip kanto_rework_hd2d_world -x '*/.DS_Store' '*/Thumbs.db'
+          cd ..
+          sha256sum dist/kanto_rework_hd2d_world-cphd2d14-test11.zip | tee dist/kanto_rework_hd2d_world-cphd2d14-test11.sha256
+          test -s dist/kanto_rework_hd2d_world-cphd2d14-test11.zip
+      - name: Upload TEST11 build
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatgpt-hd2d-test11-build
+          path: |
+            dist/kanto_rework_hd2d_world-cphd2d14-test11.zip
+            dist/kanto_rework_hd2d_world-cphd2d14-test11.sha256
+          if-no-files-found: error
+          retention-days: 14
