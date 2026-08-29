@@ -33,8 +33,14 @@ eq(profile.door.y, 5, "door y")
 
 local builder = Builder.new(Profile)
 local scene1 = builder:build(map)
-eq(#scene1.ground, 360, "Pallet ground cell count")
+-- Pallet is 20x18 = 360 cells. A 4x4 semantic building footprint owns 16
+-- cells, so no flattened copy of Red's house may survive on the ground plane.
+eq(#scene1.ground, 344, "Pallet visible ground cell count")
 eq(#scene1.buildings, 1, "semantic building count")
+for _, cell in ipairs(scene1.ground) do
+  assert(not (cell.x >= 4 and cell.x < 8 and cell.y >= 2 and cell.y < 6),
+         "semantic building footprint leaked back into flat ground")
+end
 eq(builder.buildCount, 1, "initial semantic build")
 local scene2 = builder:build(map)
 assert(scene1 == scene2, "identical map/atlas must reuse prepared semantic scene")
