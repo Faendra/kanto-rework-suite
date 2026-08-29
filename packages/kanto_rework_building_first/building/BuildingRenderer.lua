@@ -43,7 +43,8 @@ local function projectFace(proj, points)
   for i = 1, #points do
     local p = points[i]
     local x, y = proj:cell(p[1], p[2], p[3])
-    out[#out + 1], out[#out + 1] = x, y
+    out[#out + 1] = x
+    out[#out + 1] = y
   end
   return out
 end
@@ -183,26 +184,25 @@ function BuildingRenderer:drawBuilding(proj, pb)
   local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY
   local over, thick = a.roofOverhang, a.roofThickness
   local xL, xR, yB, yF = x0 - over, x1 + over, y0 - over, y1 + over
+  local roofUV = { 0, 0.38, 1, 0.38, 1, 1, 0, 1 }
 
-  -- Right side: a real vertical face, deliberately dimmed as fixed raw-light cue.
   self:drawFace(proj, pb.side, {
     { x1, y0, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x1, y0, wallH },
   }, COLORS.side)
 
-  -- Front facade keeps the runtime atlas pixels at full intensity.
   self:drawFace(proj, pb.facade, {
     { x0, y1, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x0, y1, wallH },
   }, COLORS.pixel, { 0, 1, 1, 1, 1, 0, 0, 0 })
 
-  -- Two roof planes create a pitched roof around an authored ridge.
+  -- The source roof region includes the original empty sky/smoke margin.
+  -- Authored UVs crop that margin; the pixels still do not define geometry.
   self:drawFace(proj, pb.roof, {
     { xL, yB, wallH }, { xR, yB, wallH }, { xR, ridge, peak }, { xL, ridge, peak },
-  }, COLORS.roofFar)
+  }, COLORS.roofFar, roofUV)
   self:drawFace(proj, pb.roof, {
     { xL, ridge, peak }, { xR, ridge, peak }, { xR, yF, wallH }, { xL, yF, wallH },
-  }, COLORS.pixel, { 0, 0, 1, 0, 1, 1, 0, 1 })
+  }, COLORS.pixel, roofUV)
 
-  -- Roof thickness / fascia: separate vertical faces, not a flat decal.
   self:drawFace(proj, pb.roof, {
     { xL, yF, wallH - thick }, { xR, yF, wallH - thick },
     { xR, yF, wallH }, { xL, yF, wallH },
@@ -212,7 +212,6 @@ function BuildingRenderer:drawBuilding(proj, pb)
     { xR, yF, wallH }, { xR, yB, wallH },
   }, COLORS.fascia, { 0, 0, 1, 0, 1, 0.15, 0, 0.15 })
 
-  -- The door position is semantic and tied to Pallet's canonical (5,5) warp.
   local dx0, dx1 = p.door.x, p.door.x + p.door.width
   self:drawFace(proj, pb.door, {
     { dx0, y1 + 0.006, 0 }, { dx1, y1 + 0.006, 0 },
