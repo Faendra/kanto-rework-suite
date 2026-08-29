@@ -2,7 +2,7 @@ local CELL = 16
 local TILE = 8
 
 local function fail(message)
-  io.stderr:write("FAIL love_hd2d_test11_ledge_gate: " .. tostring(message) .. "\n")
+  io.stderr:write("FAIL love_hd2d_test13_ledge_local_gate: " .. tostring(message) .. "\n")
   love.event.quit(1)
 end
 
@@ -22,36 +22,14 @@ local function tileXY(id)
   return (id % 16) * TILE, math.floor(id / 16) * TILE
 end
 
-local function paintTile(id, base, accent, dark)
+local function paintTile(id, color)
   local x, y = tileXY(id)
-  love.graphics.setColor(base[1], base[2], base[3], 1)
+  love.graphics.setColor(color[1], color[2], color[3], 1)
   love.graphics.rectangle("fill", x, y, TILE, TILE)
-  if accent then
-    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-    love.graphics.rectangle("fill", x + 1, y + 1, 6, 2)
-    love.graphics.rectangle("fill", x + 2, y + 4, 5, 2)
-  end
-  if dark then
-    love.graphics.setColor(dark[1], dark[2], dark[3], 1)
-    love.graphics.rectangle("fill", x, y + 6, TILE, 2)
-  end
-end
-
-local function paintIndexedTile(id, rows, palette)
-  local ox, oy = tileXY(id)
-  for y = 1, #rows do
-    local row = rows[y]
-    for x = 1, #row do
-      local index = tonumber(row:sub(x, x)) or 0
-      local c = palette[index + 1]
-      love.graphics.setColor(c[1], c[2], c[3], 1)
-      love.graphics.rectangle("fill", ox + x - 1, oy + y - 1, 1, 1)
-    end
-  end
 end
 
 function love.load()
-  love.filesystem.setIdentity("krs-hd2d-test11-ledge-gate")
+  love.filesystem.setIdentity("krs-hd2d-test13-ledge-local-gate")
   local root = os.getenv("KRS_ROOT")
   if not root or root == "" then return fail("KRS_ROOT is required") end
 
@@ -90,29 +68,14 @@ function love.load()
 
     local LAWN, PATH, LEDGE = 0x2C, 0x39, 0x37
     local W, H = 12, 12
-    local LEDGE_X0, LEDGE_X1 = 0, W - 1
     local LEDGE_Y1, LEDGE_Y2 = 4, 7
 
     local atlas = love.graphics.newCanvas(128, 48)
     love.graphics.setCanvas(atlas)
     love.graphics.clear(0.10, 0.12, 0.09, 1)
-    paintTile(LAWN, {0.43,0.68,0.25}, {0.64,0.82,0.34}, {0.27,0.48,0.17})
-    paintTile(PATH, {0.69,0.63,0.45}, {0.84,0.78,0.58}, {0.48,0.40,0.27})
-    paintIndexedTile(LEDGE, {
-      "02121210",
-      "30311013",
-      "33100133",
-      "33100213",
-      "31202011",
-      "12020011",
-      "11002100",
-      "00022220",
-    }, {
-      {0.20,0.14,0.09},
-      {0.39,0.29,0.17},
-      {0.63,0.49,0.28},
-      {0.83,0.75,0.54},
-    })
+    paintTile(LAWN, {0.43,0.68,0.25})
+    paintTile(PATH, {0.69,0.63,0.45})
+    paintTile(LEDGE, {0.63,0.49,0.28})
     love.graphics.setCanvas()
     atlas:setFilter("nearest", "nearest")
 
@@ -131,10 +94,8 @@ function love.load()
     function mapRenderer:drawCellBottom() flatCalls = flatCalls + 1 end
 
     local function isLedgeCell(x, y)
-      return x >= LEDGE_X0 and x <= LEDGE_X1
-         and (y == LEDGE_Y1 or y == LEDGE_Y2)
+      return x >= 0 and x < W and (y == LEDGE_Y1 or y == LEDGE_Y2)
     end
-
     local function tileForCell(x, y)
       if isLedgeCell(x, y) then return LEDGE end
       if y >= LEDGE_Y1 + 1 and y <= LEDGE_Y2 - 1 then return PATH end
@@ -142,7 +103,7 @@ function love.load()
     end
 
     local map = {
-      id = "SYNTHETIC_TEST11_ROUTE1_TERRACES",
+      id = "SYNTHETIC_TEST13_LOCAL_LEDGES",
       def = { tileset = "OVERWORLD" },
       widthCells = W, heightCells = H, renderer = mapRenderer,
     }
@@ -158,57 +119,34 @@ function love.load()
     end
     function map:blockAt() return 0x01 end
 
-    assert(LedgeTopology.logicalLevel(map, 5, 2) == 2,
-           "upper terrace should be logical level 2")
-    assert(LedgeTopology.logicalLevel(map, 5, 5) == 1,
-           "middle terrace should be logical level 1")
-    assert(LedgeTopology.logicalLevel(map, 5, 9) == 0,
-           "lower terrace should be logical level 0")
-    local face1 = assert(LedgeTopology.faceAt(map, 5, LEDGE_Y1), "first ledge face missing")
-    local face2 = assert(LedgeTopology.faceAt(map, 5, LEDGE_Y2), "second ledge face missing")
-    assert(face1.dir == "down" and face2.dir == "down", "ledge direction mismatch")
-    assert(face1.upperLevel - face1.lowerLevel == 1, "first ledge is not one level")
-    assert(face2.upperLevel - face2.lowerLevel == 1, "second ledge is not one level")
+    for _, p in ipairs({ {5,2}, {5,5}, {5,9}, {1,1}, {10,10} }) do
+      assert(LedgeTopology.logicalLevel(map, p[1], p[2]) == 0,
+             "vanilla ledge leaked a global logical terrain level")
+      assert(math.abs(LedgeTopology.worldZ(map, p[1], p[2])) < 0.00001,
+             "vanilla ledge leaked global world Z")
+    end
 
-    -- Reproduce Player:update/pose timing without reimplementing movement: the
-    -- base actor coordinates travel exactly 32 px over the 32-frame two-cell
-    -- hop. The baseline must remain on the upper terrace until the edge, ease
-    -- during the second half, and meet the lower terrace continuously.
+    local face1 = assert(LedgeTopology.faceAt(map, 5, LEDGE_Y1), "first local ledge face missing")
+    local face2 = assert(LedgeTopology.faceAt(map, 5, LEDGE_Y2), "second local ledge face missing")
+    assert(face1.dir == "down" and face2.dir == "down", "ledge direction mismatch")
+    assert(face1.upperLevel - face1.lowerLevel == 1,
+           "ledge visual lip is not one local level")
+    assert(math.abs((face1.upperZ - face1.lowerZ) - LedgeTopology.STEP_WORLD) < 0.0001,
+           "ledge local visual height mismatch")
+
     local hopProbe = {
-      ledgeHop = true, hopTotal = 32, facing = "down",
-      px = 5 * CELL,
+      ledgeHop = true, hopTotal = 32, hopFrames = 8,
+      facing = "down", px = 5 * CELL, py = 4 * CELL + 8,
     }
-    local highZ = LedgeTopology.worldZ(map, 5, 3)
-    local lowZ = LedgeTopology.worldZ(map, 5, 5)
-    hopProbe.hopFrames, hopProbe.py = 32, 3 * CELL
-    local z0 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
-    hopProbe.hopFrames, hopProbe.py = 16, 4 * CELL
-    local z50 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
-    hopProbe.hopFrames, hopProbe.py = 8, 4 * CELL + 8
-    local z75 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
-    hopProbe.hopFrames, hopProbe.py = 0, 5 * CELL
-    local z100 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
-    assert(math.abs(z0 - highZ) < 0.001, "hop baseline does not start on upper terrace")
-    assert(math.abs(z50 - highZ) < 0.001, "hop baseline drops before crossing ledge")
-    assert(z75 < highZ and z75 > lowZ, "hop baseline does not ease between terraces")
-    assert(math.abs(z75 - (highZ + lowZ) * 0.5) < 0.001,
-           "hop baseline midpoint is discontinuous")
-    assert(math.abs(z100 - lowZ) < 0.001, "hop baseline does not land on lower terrace")
+    assert(LedgeTopology.hopWorldZ(map, hopProbe) == nil,
+           "ledge hop invented a persistent terrain baseline")
 
     local actorImage = love.graphics.newCanvas(16, 20)
     love.graphics.setCanvas(actorImage)
     love.graphics.clear(0, 0, 0, 0)
     love.graphics.setColor(0.83, 0.14, 0.10, 1)
-    love.graphics.rectangle("fill", 4, 1, 8, 4)
-    love.graphics.setColor(0.95, 0.74, 0.53, 1)
-    love.graphics.rectangle("fill", 5, 5, 6, 5)
-    love.graphics.setColor(0.14, 0.29, 0.65, 1)
-    love.graphics.rectangle("fill", 3, 10, 10, 7)
-    love.graphics.setColor(0.10, 0.11, 0.13, 1)
-    love.graphics.rectangle("fill", 4, 17, 3, 3)
-    love.graphics.rectangle("fill", 9, 17, 3, 3)
+    love.graphics.rectangle("fill", 4, 1, 8, 18)
     love.graphics.setCanvas()
-    actorImage:setFilter("nearest", "nearest")
     local actorQuad = love.graphics.newQuad(0, 0, 16, 20, 16, 20)
     local sprite = {
       getPoseGeometry = function()
@@ -225,22 +163,9 @@ function love.load()
     local topActor = actor("TOP", 5, 2)
     local midActor = actor("MID", 5, 5)
     local lowActor = actor("LOW", 5, 9)
-
-    -- One live draw-frame at t=75% verifies that the wrapper is actually in
-    -- the renderer stack, not merely that the pure topology helper works.
-    local hopActor = {
-      id = "HOP", px = 5 * CELL, py = 4 * CELL + 8,
-      facing = "down", ledgeHop = true, hopFrames = 8, hopTotal = 32,
-    }
-    function hopActor:pose()
-      local t = 1 - self.hopFrames / self.hopTotal
-      local lift = math.floor(10 * math.sin(t * math.pi) + 0.5)
-      return sprite, self.px, self.py - lift, self.facing, 0, false, true
-    end
-
     local state = {
-      map = map, neighbors = {},
-      entities = { topActor, midActor, lowActor, hopActor }, ghosts = {}, player = midActor,
+      map = map, neighbors = {}, entities = { topActor, midActor, lowActor },
+      ghosts = {}, player = midActor,
     }
     local ctx = {
       width = 960, height = 540, vw = 160, vh = 144,
@@ -252,46 +177,38 @@ function love.load()
       drawFx = function() end,
     }
 
-    local raw = assert(renderer:drawWorld(ctx), "TEST11 renderer returned no canvas")
+    local raw = assert(renderer:drawWorld(ctx), "TEST13 renderer returned no canvas")
     saveCanvas(raw, "hd2d-test11-ledge-raw.png")
 
-    assert(flatCalls == 0, "TEST11 invoked flattened map renderer")
-    assert((renderer.lastAtlasDirectFrames or 0) == 1, "TEST11 direct-atlas path inactive")
-    assert((renderer.lastCompatibilityCaptureFrames or 0) == 0, "TEST11 used compatibility capture")
-    assert((renderer.lastFlatSourceFallbacks or 0) == 0, "TEST11 leaked flat source")
-    assert((renderer.lastAtlasMeshFallbacks or 0) == 0, "TEST11 atlas mesh fallback used")
-    assert((renderer.lastTerrainSkirts or 0) == 0, "TEST11 semantic lawn/path skirts returned")
-    assert((renderer.lastLedgeLevelCells or 0) > 0, "TEST11 ledge elevations inactive")
+    assert(flatCalls == 0, "TEST13 invoked flattened map renderer")
+    assert((renderer.lastAtlasDirectFrames or 0) == 1, "TEST13 direct-atlas path inactive")
+    assert((renderer.lastTerrainSkirts or 0) == 0, "TEST13 semantic skirts returned")
+    assert((renderer.lastLedgeLevelCells or 0) == 0,
+           "TEST13 still raises terrain cells from ledges")
     assert((renderer.lastLedgeFaces or 0) == 24,
-           "TEST11 expected exactly 24 ledge faces, got " .. tostring(renderer.lastLedgeFaces))
+           "TEST13 expected exactly 24 local ledge faces")
     assert((renderer.lastTexturedLedgeFaces or 0) == 24,
-           "TEST11 ledge faces are not fully atlas-textured")
-    assert((renderer.lastAtlasTileTextures or 0) >= 1,
-           "TEST11 did not source ledge faces from exact 8x8 collision tiles")
-    assert((renderer.lastSmoothedLedgeActors or 0) == 1,
-           "TEST11 live ledge-hop actor did not receive smoothed terrain baseline")
-    assert(renderer.lastActors == 4, "TEST11 terrace/hop actors missing")
+           "TEST13 local ledge faces are not atlas-textured")
+    assert((renderer.lastSmoothedLedgeActors or 0) == 0,
+           "TEST13 still applies global hop baseline smoothing")
 
     local scenes = renderer:scenes(state)
     local zTop = renderer:surfaceZForWorld(scenes, topActor.px + 8, topActor.py + 12)
     local zMid = renderer:surfaceZForWorld(scenes, midActor.px + 8, midActor.py + 12)
     local zLow = renderer:surfaceZForWorld(scenes, lowActor.px + 8, lowActor.py + 12)
-    assert(zTop > zMid and zMid > zLow, "TEST11 actor surfaces are not ordered by terrace")
-    assert(math.abs((zTop - zMid) - LedgeTopology.STEP_WORLD) < 0.001,
-           "TEST11 upper ledge height mismatch")
-    assert(math.abs((zMid - zLow) - LedgeTopology.STEP_WORLD) < 0.001,
-           "TEST11 lower ledge height mismatch")
+    assert(math.abs(zTop - zMid) < 0.00001 and math.abs(zMid - zLow) < 0.00001,
+           "TEST13 ledges still create random actor/world elevation")
 
-    local proj = Projection.new(ctx, 2)
-    local _, focusY = proj:worldPixel(midActor.px + 8, midActor.py + 12, zMid)
-    local final = assert(atmosphere:present(raw, ctx, 2, focusY / raw:getHeight()),
-                         "TEST11 atmosphere returned no canvas")
+    local _, playerY = Projection.new(ctx, 2):worldPixel(midActor.px + 8,
+                                                         midActor.py + 12, zMid)
+    local final = assert(atmosphere:present(raw, ctx, 2, playerY / raw:getHeight()),
+                         "TEST13 atmosphere returned no canvas")
     saveCanvas(final, "hd2d-test11-ledge-depth.png")
   end)
 
   package.preload["hd2d.VanillaMotifs"] = nil
   package.preload["hd2d.LedgeTopology"] = nil
   if not ok then return fail(err) end
-  print("PASS love_hd2d_test11_ledge_gate")
+  print("PASS love_hd2d_test13_ledge_local_gate")
   love.event.quit(0)
 end
