@@ -72,6 +72,7 @@ function love.load()
     local AtlasWorld = module(root, "hd2d/AtlasWorld.lua")
     local Continuity = module(root, "hd2d/SceneContinuity.lua")
     local TerrainRemaster = module(root, "hd2d/TerrainRemaster.lua")
+    local LedgeHopSmoothing = module(root, "hd2d/LedgeHopSmoothing.lua")
     local Atmosphere = module(root, "hd2d/WorldAtmosphere.lua")
 
     local renderer = SceneStyle.apply(SceneRenderer.new(Projection, Classifier))
@@ -83,6 +84,7 @@ function love.load()
     renderer = AtlasWorld.apply(renderer, AtlasSource)
     renderer = Continuity.apply(renderer)
     renderer = TerrainRemaster.apply(renderer)
+    renderer = LedgeHopSmoothing.apply(renderer)
     renderer:update(0, 2)
     local atmosphere = Atmosphere.new()
 
@@ -168,6 +170,31 @@ function love.load()
     assert(face1.upperLevel - face1.lowerLevel == 1, "first ledge is not one level")
     assert(face2.upperLevel - face2.lowerLevel == 1, "second ledge is not one level")
 
+    -- Reproduce Player:update/pose timing without reimplementing movement: the
+    -- base actor coordinates travel exactly 32 px over the 32-frame two-cell
+    -- hop. The baseline must remain on the upper terrace until the edge, ease
+    -- during the second half, and meet the lower terrace continuously.
+    local hopProbe = {
+      ledgeHop = true, hopTotal = 32, facing = "down",
+      px = 5 * CELL,
+    }
+    local highZ = LedgeTopology.worldZ(map, 5, 3)
+    local lowZ = LedgeTopology.worldZ(map, 5, 5)
+    hopProbe.hopFrames, hopProbe.py = 32, 3 * CELL
+    local z0 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
+    hopProbe.hopFrames, hopProbe.py = 16, 4 * CELL
+    local z50 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
+    hopProbe.hopFrames, hopProbe.py = 8, 4 * CELL + 8
+    local z75 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
+    hopProbe.hopFrames, hopProbe.py = 0, 5 * CELL
+    local z100 = assert(LedgeTopology.hopWorldZ(map, hopProbe))
+    assert(math.abs(z0 - highZ) < 0.001, "hop baseline does not start on upper terrace")
+    assert(math.abs(z50 - highZ) < 0.001, "hop baseline drops before crossing ledge")
+    assert(z75 < highZ and z75 > lowZ, "hop baseline does not ease between terraces")
+    assert(math.abs(z75 - (highZ + lowZ) * 0.5) < 0.001,
+           "hop baseline midpoint is discontinuous")
+    assert(math.abs(z100 - lowZ) < 0.001, "hop baseline does not land on lower terrace")
+
     local actorImage = love.graphics.newCanvas(16, 20)
     love.graphics.setCanvas(actorImage)
     love.graphics.clear(0, 0, 0, 0)
@@ -199,9 +226,21 @@ function love.load()
     local midActor = actor("MID", 5, 5)
     local lowActor = actor("LOW", 5, 9)
 
+    -- One live draw-frame at t=75% verifies that the wrapper is actually in
+    -- the renderer stack, not merely that the pure topology helper works.
+    local hopActor = {
+      id = "HOP", px = 5 * CELL, py = 4 * CELL + 8,
+      facing = "down", ledgeHop = true, hopFrames = 8, hopTotal = 32,
+    }
+    function hopActor:pose()
+      local t = 1 - self.hopFrames / self.hopTotal
+      local lift = math.floor(10 * math.sin(t * math.pi) + 0.5)
+      return sprite, self.px, self.py - lift, self.facing, 0, false, true
+    end
+
     local state = {
       map = map, neighbors = {},
-      entities = { topActor, midActor, lowActor }, ghosts = {}, player = midActor,
+      entities = { topActor, midActor, lowActor, hopActor }, ghosts = {}, player = midActor,
     }
     local ctx = {
       width = 960, height = 540, vw = 160, vh = 144,
@@ -229,7 +268,9 @@ function love.load()
            "TEST11 ledge faces are not fully atlas-textured")
     assert((renderer.lastAtlasTileTextures or 0) >= 1,
            "TEST11 did not source ledge faces from exact 8x8 collision tiles")
-    assert(renderer.lastActors == 3, "TEST11 terrace actors missing")
+    assert((renderer.lastSmoothedLedgeActors or 0) == 1,
+           "TEST11 live ledge-hop actor did not receive smoothed terrain baseline")
+    assert(renderer.lastActors == 4, "TEST11 terrace/hop actors missing")
 
     local scenes = renderer:scenes(state)
     local zTop = renderer:surfaceZForWorld(scenes, topActor.px + 8, topActor.py + 12)
