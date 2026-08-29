@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_hd2d_world",
   "name": "Kanto Rework — HD2D World (ChatGPT Sol)",
-  "version": "0.2.10-cphd2d15-test12",
+  "version": "0.2.11-cphd2d16-test13",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "KRS HD-2D TEST12: direct runtime-atlas reconstruction with canonical stacked one-way ledge terrain and smooth vanilla ledge-hop baseline; exact Pokemon Red tree silhouettes receive subtle render-only spacing/scale variation; canonical boulders use low irregular sloped mounds instead of cylindrical pucks; generic outdoor boundaries remain grounded; perspective actors, volumetric architecture and interior dollhouse shells preserved. Gameplay remains Gen1Recomp-authoritative."
+  "description": "KRS HD-2D TEST13 stabilization: vanilla one-way ledges remain local one-level atlas-textured lips but no longer fabricate map-wide terrain elevations; player/NPC/world Z stays stable unless an explicit elevation API exists; repeated Pokemon Red tree silhouettes now hit the cache before GPU ImageData readback; TEST12 organic tree variation and low sloped boulders preserved; generic boundaries remain grounded and direct runtime-atlas reconstruction stays authoritative. Gameplay remains Gen1Recomp-authoritative."
 }
