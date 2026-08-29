@@ -27,8 +27,8 @@ local RELATIVE_FILES = {
   "manifest.json", "main.lua",
   "hd2d/SceneProjection.lua", "hd2d/SceneRenderer.lua",
   "hd2d/SceneStyle.lua", "hd2d/LivePolish.lua",
-  "hd2d/VanillaMotifs.lua", "hd2d/LedgeTopology.lua", "hd2d/DioramaPolish.lua",
-  "hd2d/NaturalForms.lua", "hd2d/NaturalScale.lua",
+  "hd2d/VanillaMotifs.lua", "hd2d/LedgeTopology.lua", "hd2d/LedgeHopSmoothing.lua",
+  "hd2d/DioramaPolish.lua", "hd2d/NaturalForms.lua", "hd2d/NaturalScale.lua",
   "hd2d/AtlasSource.lua", "hd2d/AtlasWorld.lua",
   "hd2d/SceneContinuity.lua", "hd2d/TerrainRemaster.lua",
   "hd2d/MaterialClassifier.lua", "hd2d/WorldAtmosphere.lua",
@@ -93,7 +93,8 @@ assert(#loader.errors == 0,
 
 local exports = assert(loader.exports.kanto_rework_hd2d_world, "TEST11 exports missing")
 for _, name in ipairs({ "renderer", "projection", "materialClassifier",
-  "vanillaMotifs", "ledgeTopology", "naturalForms", "naturalScale", "atlasSource",
+  "vanillaMotifs", "ledgeTopology", "ledgeHopSmoothing",
+  "naturalForms", "naturalScale", "atlasSource",
   "atlasWorld", "terrainRemaster", "atmosphere" }) do
   assert(type(exports[name]) == "table", name .. " export missing")
 end
@@ -193,6 +194,8 @@ assert((r.lastRaisedLawnCells or 0) == 0, "TEST11 still raises lawn semantically
 assert((r.lastTerrainSkirts or 0) == 0, "TEST11 still emits semantic terrain skirts")
 assert((r.lastFlatOutdoorCells or 0) > 20, "TEST11 ordinary outdoor terrain not coplanar")
 assert((r.lastLedgeFaces or 0) == 0, "TEST11 no-ledge loader scene fabricated ledge faces")
+assert((r.lastSmoothedLedgeActors or 0) == 0,
+       "TEST11 no-ledge loader scene unexpectedly smoothed an actor")
 assert((r.lastPathCells or 0) > 0, "TEST11 path surface classification missing")
 assert((r.lastScaledTrees or 0) > 0, "TEST11 tree scale tuning inactive")
 assert((r.lastFlattenedBoulders or 0) > 0, "TEST11 boulder flattening inactive")
