@@ -184,7 +184,7 @@ function BuildingRenderer:drawBuilding(proj, pb)
   local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY
   local over, thick = a.roofOverhang, a.roofThickness
   local xL, xR, yB, yF = x0 - over, x1 + over, y0 - over, y1 + over
-  local roofUV = { 0, 0.38, 1, 0.38, 1, 1, 0, 1 }
+  local roofUV = { 0, 0.50, 1, 0.50, 1, 1, 0, 1 }
 
   self:drawFace(proj, pb.side, {
     { x1, y0, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x1, y0, wallH },
