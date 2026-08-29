@@ -31,12 +31,14 @@ function PalletRivalHouse.detect(map)
     door = { x = 13, y = 5, width = 1 },
     architecture = {
       wallHeight = 1.36,
+      roofStyle = "gable",
       roofPeak = 2.34,
       roofThickness = 0.14,
       roofOverhang = 0.18,
       ridgeY = 4.0,
       doorHeight = 0.92,
       shadowInset = 0.04,
+      roofUV = { 0, 0.50, 1, 0.50, 1, 1, 0, 1 },
     },
     materials = {
       roof = { x0 = 12, y0 = 2, x1 = 15, y1 = 3 },

@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install -y lua5.1
-      - name: Parse BUILDING-02 Lua
+      - name: Parse BUILDING-03 Lua
         run: |
           find packages/kanto_rework_building_first -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/building_first_semantic_test.lua
@@ -36,7 +36,7 @@ jobs:
           ! grep -RE "SceneStyle|LivePolish|DioramaPolish|NaturalForms|NaturalScale|AtlasWorld|SceneContinuity|TerrainRemaster|LedgeTopology|LedgeHopSmoothing" packages/kanto_rework_building_first
 
   gen1recomp-loader:
-    name: Gen1Recomp v0.2.32 BUILDING-02 loader
+    name: Gen1Recomp v0.2.32 BUILDING-03 loader
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,7 +62,7 @@ jobs:
           retention-days: 7
 
   love-raw:
-    name: Real LÖVE BUILDING-02 raw raster
+    name: Real LÖVE BUILDING-03 raw raster
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,22 +77,25 @@ jobs:
           set -euo pipefail
           KRS_ROOT="$GITHUB_WORKSPACE" timeout 30s xvfb-run -a love tests/love_building_first_gate 2>&1 | tee building-first-love.log
           find "$HOME/.local/share/love" -type f \( \
-            -name 'building-first-raw-front.png' -o \
+            -name 'building-first-raw-pallet.png' -o \
             -name 'building-first-raw-red-behind.png' -o \
-            -name 'building-first-raw-rival-behind.png' \
+            -name 'building-first-raw-rival-behind.png' -o \
+            -name 'building-first-raw-oak-behind.png' \
           \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
-          test -s building-first-raw-front.png
+          test -s building-first-raw-pallet.png
           test -s building-first-raw-red-behind.png
           test -s building-first-raw-rival-behind.png
-      - name: Upload BUILDING-02 raw captures
+          test -s building-first-raw-oak-behind.png
+      - name: Upload BUILDING-03 raw captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: building-first-raw-visual
           path: |
             building-first-love.log
-            building-first-raw-front.png
+            building-first-raw-pallet.png
             building-first-raw-red-behind.png
             building-first-raw-rival-behind.png
+            building-first-raw-oak-behind.png
           if-no-files-found: warn
           retention-days: 7

@@ -1,4 +1,4 @@
--- Official Gen1Recomp v0.2.32 loader gate for BUILDING-02.
+-- Official Gen1Recomp v0.2.32 loader gate for BUILDING-03.
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
@@ -25,6 +25,7 @@ local RELATIVE_FILES = {
   "manifest.json", "main.lua",
   "building/PalletRedHouse.lua",
   "building/PalletRivalHouse.lua",
+  "building/PalletOakLab.lua",
   "building/SemanticSceneBuilder.lua",
   "building/SceneProjection.lua",
   "building/AtlasSource.lua",
@@ -79,23 +80,23 @@ end
 
 local data = {}
 local loader = Loader.new({ fs = memfs(files), generation = 1, dev = true })
-assert(loader:load(data), "BUILDING-02 loader rejected package: " .. table.concat(loader.errors, "; "))
-assert(#loader.errors == 0, "BUILDING-02 loader errors: " .. table.concat(loader.errors, "; "))
+assert(loader:load(data), "BUILDING-03 loader rejected package: " .. table.concat(loader.errors, "; "))
+assert(#loader.errors == 0, "BUILDING-03 loader errors: " .. table.concat(loader.errors, "; "))
 
-local exports = assert(loader.exports.kanto_rework_building_first, "BUILDING-02 exports missing")
+local exports = assert(loader.exports.kanto_rework_building_first, "BUILDING-03 exports missing")
 for _, name in ipairs({
   "renderer", "sceneBuilder", "buildingProfiles", "redHouseProfile",
-  "rivalHouseProfile", "projection", "atlasSource",
+  "rivalHouseProfile", "oakLabProfile", "projection", "atlasSource",
 }) do
   assert(type(exports[name]) == "table", name .. " export missing")
 end
-assert(#exports.buildingProfiles == 2, "expected two Pallet building profiles")
+assert(#exports.buildingProfiles == 3, "expected three Pallet building profiles")
 assert(type(exports.metrics) == "function", "metrics export missing")
 
 Pipelines.install(data)
 Pipelines.setLevel("krs_building_first", 1)
 Pipelines.update(0)
-assert(Pipelines.worldPipeline() == "krs_building_first", "BUILDING-02 pipeline unavailable")
+assert(Pipelines.worldPipeline() == "krs_building_first", "BUILDING-03 pipeline unavailable")
 
 local flatCalls = 0
 local rendererStub = {
@@ -121,6 +122,9 @@ function map:warpAtCell(x, y)
   if x == 13 and y == 5 then
     return { index = 2, def = { destMap = "BLUES_HOUSE", destWarp = 1 } }
   end
+  if x == 12 and y == 11 then
+    return { index = 3, def = { destMap = "OAKS_LAB", destWarp = 2 } }
+  end
   return nil
 end
 
@@ -130,12 +134,23 @@ end
 
 function map:tileAt(tx, ty)
   local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
+  local q = (ty % 2) * 2 + (tx % 2)
   local inRed = inHouse(cx, cy, 4)
   local inRival = inHouse(cx, cy, 12)
   if (inRed or inRival) and cy <= 3 then return 0x22 end
   if (inRed or inRival) and cy >= 4 then
     if (cx == 5 or cx == 13) and cy == 5 then return 0x1D end
     return 0x30
+  end
+
+  local inOak = cx >= 10 and cx <= 15 and cy >= 8 and cy <= 11
+  if inOak and cy <= 9 then
+    if cx == 10 or cx == 15 then return 0x36 + q end
+    return 0x32 + q
+  end
+  if inOak and cy >= 10 then
+    if cx == 12 and cy == 11 then return 0x40 end
+    return 0x3C + q
   end
   return 0x2C
 end
@@ -148,7 +163,7 @@ local sprite = {
   end,
   resolveImage = function() return actorImage end,
 }
-local actor = { id = "RED", px = 9 * 16, py = 7 * 16 }
+local actor = { id = "RED", px = 10 * 16, py = 13 * 16 }
 function actor:pose() return sprite, self.px, self.py, "down", 0, false, false end
 
 local state = { map = map, neighbors = {}, entities = { actor }, ghosts = {}, player = actor }
@@ -164,20 +179,21 @@ local before = {
   py = actor.py,
   redWarp = map:warpAtCell(5, 5).def.destMap,
   rivalWarp = map:warpAtCell(13, 5).def.destMap,
+  oakWarp = map:warpAtCell(12, 11).def.destMap,
 }
 local rendered = Pipelines.drawWorld("krs_building_first", ctx)
-assert(rendered ~= nil, "BUILDING-02 renderer produced no canvas")
+assert(rendered ~= nil, "BUILDING-03 renderer produced no canvas")
 local m1 = exports.metrics()
 assert(m1.semanticBuilds == 1, "semantic scene was not prepared exactly once")
-assert(m1.groundCells == 328, "two semantic footprints were not removed from flat Pallet ground")
-assert(m1.buildings == 2, "Pallet semantic houses missing")
+assert(m1.groundCells == 304, "three semantic footprints were not removed from flat Pallet ground")
+assert(m1.buildings == 3, "Pallet semantic buildings missing")
 assert(m1.actors == 1, "Red actor billboard missing")
 assert(m1.materialBuilds > 0, "runtime atlas materials were not cached")
 assert(flatCalls == 0, "building-first path invoked flattened map drawing")
 
 local materialBuilds = m1.materialBuilds
 local rendered2 = Pipelines.drawWorld("krs_building_first", ctx)
-assert(rendered2 ~= nil, "second BUILDING-02 draw failed")
+assert(rendered2 ~= nil, "second BUILDING-03 draw failed")
 local m2 = exports.metrics()
 assert(m2.semanticBuilds == 1, "semantic scene rebuilt during stable draw")
 assert(m2.materialBuilds == materialBuilds, "atlas materials rebuilt during stable draw")
@@ -185,6 +201,7 @@ assert(map.id == before.mapId and actor.px == before.px and actor.py == before.p
        "renderer mutated gameplay identity or actor coordinates")
 assert(map:warpAtCell(5, 5).def.destMap == before.redWarp, "renderer mutated Red house warp")
 assert(map:warpAtCell(13, 5).def.destMap == before.rivalWarp, "renderer mutated rival house warp")
+assert(map:warpAtCell(12, 11).def.destMap == before.oakWarp, "renderer mutated Oak lab warp")
 
 print(("PASS building_first_loader_v0232 buildings=%d ground=%d materials=%d")
   :format(m2.buildings, m2.groundCells, m2.materialBuilds))

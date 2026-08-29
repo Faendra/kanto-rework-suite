@@ -10,8 +10,12 @@ local COLORS = {
   pixel = { 1, 1, 1, 1 },
   side = { 0.78, 0.78, 0.74, 1 },
   roofFar = { 0.86, 0.86, 0.82, 1 },
+  roofSide = { 0.82, 0.82, 0.78, 1 },
   fascia = { 0.56, 0.56, 0.52, 1 },
 }
+
+local DEFAULT_ROOF_UV = { 0, 0, 1, 0, 1, 1, 0, 1 }
+local DEFAULT_FASCIA_UV = { 0, 0.75, 1, 0.75, 1, 1, 0, 1 }
 
 local function release(obj)
   if obj and obj.release then pcall(obj.release, obj) end
@@ -47,6 +51,11 @@ local function projectFace(proj, points)
     out[#out + 1] = y
   end
   return out
+end
+
+local function regionTexture(source, host, map, region)
+  if not region then return nil end
+  return source.regionTexture(host, map, region.x0, region.y0, region.x1, region.y1)
 end
 
 function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder)
@@ -110,7 +119,7 @@ function BuildingRenderer:drawFace(proj, texture, points, color, uv)
     return false
   end
 
-  uv = uv or { 0, 0, 1, 0, 1, 1, 0, 1 }
+  uv = uv or DEFAULT_ROOF_UV
   self.mesh:setVertices({
     { poly[1], poly[2], uv[1], uv[2], color[1], color[2], color[3], color[4] or 1 },
     { poly[3], poly[4], uv[3], uv[4], color[1], color[2], color[3], color[4] or 1 },
@@ -142,10 +151,12 @@ function BuildingRenderer:prepareScene(map)
     local m = b.materials
     prepared.buildings[#prepared.buildings + 1] = {
       semantic = b,
-      roof = self.AtlasSource.regionTexture(self, map, m.roof.x0, m.roof.y0, m.roof.x1, m.roof.y1),
-      facade = self.AtlasSource.regionTexture(self, map, m.facade.x0, m.facade.y0, m.facade.x1, m.facade.y1),
-      side = self.AtlasSource.regionTexture(self, map, m.side.x0, m.side.y0, m.side.x1, m.side.y1),
-      door = self.AtlasSource.cellTexture(self, map, m.door.x, m.door.y),
+      roof = regionTexture(self.AtlasSource, self, map, m.roof),
+      roofLeft = regionTexture(self.AtlasSource, self, map, m.roofLeft),
+      roofRight = regionTexture(self.AtlasSource, self, map, m.roofRight),
+      facade = regionTexture(self.AtlasSource, self, map, m.facade),
+      side = regionTexture(self.AtlasSource, self, map, m.side),
+      door = m.door and self.AtlasSource.cellTexture(self, map, m.door.x, m.door.y) or nil,
     }
   end
   self.preparedKey, self.prepared = scene.key, prepared
@@ -177,25 +188,10 @@ function BuildingRenderer:drawBuildingShadow(proj, profile)
   self.lastDrawCalls = self.lastDrawCalls + 1
 end
 
-function BuildingRenderer:drawBuilding(proj, pb)
-  local p = pb.semantic
-  local f, a = p.footprint, p.architecture
-  local x0, x1, y0, y1 = f.x0, f.x1, f.y0, f.y1
-  local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY
-  local over, thick = a.roofOverhang, a.roofThickness
-  local xL, xR, yB, yF = x0 - over, x1 + over, y0 - over, y1 + over
-  local roofUV = { 0, 0.50, 1, 0.50, 1, 1, 0, 1 }
+function BuildingRenderer:drawGableRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
+  local roofUV = a.roofUV or DEFAULT_ROOF_UV
+  local fasciaUV = a.fasciaUV or DEFAULT_FASCIA_UV
 
-  self:drawFace(proj, pb.side, {
-    { x1, y0, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x1, y0, wallH },
-  }, COLORS.side)
-
-  self:drawFace(proj, pb.facade, {
-    { x0, y1, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x0, y1, wallH },
-  }, COLORS.pixel, { 0, 1, 1, 1, 1, 0, 0, 0 })
-
-  -- The source roof region includes the original empty sky/smoke margin.
-  -- Authored UVs crop that margin; the pixels still do not define geometry.
   self:drawFace(proj, pb.roof, {
     { xL, yB, wallH }, { xR, yB, wallH }, { xR, ridge, peak }, { xL, ridge, peak },
   }, COLORS.roofFar, roofUV)
@@ -206,11 +202,73 @@ function BuildingRenderer:drawBuilding(proj, pb)
   self:drawFace(proj, pb.roof, {
     { xL, yF, wallH - thick }, { xR, yF, wallH - thick },
     { xR, yF, wallH }, { xL, yF, wallH },
-  }, COLORS.fascia, { 0, 0.75, 1, 0.75, 1, 1, 0, 1 })
+  }, COLORS.fascia, fasciaUV)
   self:drawFace(proj, pb.roof, {
     { xR, yB, wallH - thick }, { xR, yF, wallH - thick },
     { xR, yF, wallH }, { xR, yB, wallH },
   }, COLORS.fascia, { 0, 0, 1, 0, 1, 0.15, 0, 0.15 })
+end
+
+function BuildingRenderer:drawHipRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
+  local inset = a.ridgeInsetX or 1.0
+  local ridgeL, ridgeR = xL + inset, xR - inset
+  local roofUV = a.roofUV or DEFAULT_ROOF_UV
+  local fasciaUV = a.fasciaUV or DEFAULT_FASCIA_UV
+  local sideUV = a.roofSideUV or DEFAULT_ROOF_UV
+
+  -- A hip roof has a shortened ridge. The front/back planes are trapezoids;
+  -- the side hips are triangles represented as degenerate quads so the same
+  -- four-vertex mesh path remains reusable.
+  self:drawFace(proj, pb.roof, {
+    { xL, yB, wallH }, { xR, yB, wallH },
+    { ridgeR, ridge, peak }, { ridgeL, ridge, peak },
+  }, COLORS.roofFar, roofUV)
+  self:drawFace(proj, pb.roof, {
+    { ridgeL, ridge, peak }, { ridgeR, ridge, peak },
+    { xR, yF, wallH }, { xL, yF, wallH },
+  }, COLORS.pixel, roofUV)
+
+  self:drawFace(proj, pb.roofLeft or pb.roof, {
+    { xL, yB, wallH }, { ridgeL, ridge, peak },
+    { xL, yF, wallH }, { xL, yF, wallH },
+  }, COLORS.roofSide, sideUV)
+  self:drawFace(proj, pb.roofRight or pb.roof, {
+    { xR, yF, wallH }, { ridgeR, ridge, peak },
+    { xR, yB, wallH }, { xR, yB, wallH },
+  }, COLORS.pixel, sideUV)
+
+  self:drawFace(proj, pb.roof, {
+    { xL, yF, wallH - thick }, { xR, yF, wallH - thick },
+    { xR, yF, wallH }, { xL, yF, wallH },
+  }, COLORS.fascia, fasciaUV)
+  self:drawFace(proj, pb.roofRight or pb.roof, {
+    { xR, yB, wallH - thick }, { xR, yF, wallH - thick },
+    { xR, yF, wallH }, { xR, yB, wallH },
+  }, COLORS.fascia, { 0, 0, 1, 0, 1, 0.20, 0, 0.20 })
+end
+
+function BuildingRenderer:drawBuilding(proj, pb)
+  local p = pb.semantic
+  local f, a = p.footprint, p.architecture
+  local x0, x1, y0, y1 = f.x0, f.x1, f.y0, f.y1
+  local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY
+  local over, thick = a.roofOverhang, a.roofThickness
+  local xL, xR, yB, yF = x0 - over, x1 + over, y0 - over, y1 + over
+
+  self:drawFace(proj, pb.side, {
+    { x1, y0, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x1, y0, wallH },
+  }, COLORS.side)
+
+  self:drawFace(proj, pb.facade, {
+    { x0, y1, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x0, y1, wallH },
+  }, COLORS.pixel, { 0, 1, 1, 1, 1, 0, 0, 0 })
+
+  local roofStyle = a.roofStyle or "gable"
+  if roofStyle == "hip" then
+    self:drawHipRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
+  else
+    self:drawGableRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
+  end
 
   local dx0, dx1 = p.door.x, p.door.x + p.door.width
   self:drawFace(proj, pb.door, {

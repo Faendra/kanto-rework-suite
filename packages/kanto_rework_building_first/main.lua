@@ -30,12 +30,13 @@ end
 
 local PalletRedHouse = loadLocal("building.PalletRedHouse", "building/PalletRedHouse.lua")
 local PalletRivalHouse = loadLocal("building.PalletRivalHouse", "building/PalletRivalHouse.lua")
+local PalletOakLab = loadLocal("building.PalletOakLab", "building/PalletOakLab.lua")
 local SemanticSceneBuilder = loadLocal("building.SemanticSceneBuilder", "building/SemanticSceneBuilder.lua")
 local SceneProjection = loadLocal("building.SceneProjection", "building/SceneProjection.lua")
 local AtlasSource = loadLocal("building.AtlasSource", "building/AtlasSource.lua")
 local BuildingRenderer = loadLocal("building.BuildingRenderer", "building/BuildingRenderer.lua")
 
-local buildingProfiles = { PalletRedHouse, PalletRivalHouse }
+local buildingProfiles = { PalletRedHouse, PalletRivalHouse, PalletOakLab }
 local sceneBuilder = SemanticSceneBuilder.new(buildingProfiles)
 local renderer = BuildingRenderer.new(SceneProjection, AtlasSource, sceneBuilder)
 
@@ -44,13 +45,14 @@ mod.exports.sceneBuilder = sceneBuilder
 mod.exports.buildingProfiles = buildingProfiles
 mod.exports.redHouseProfile = PalletRedHouse
 mod.exports.rivalHouseProfile = PalletRivalHouse
+mod.exports.oakLabProfile = PalletOakLab
 mod.exports.projection = SceneProjection
 mod.exports.atlasSource = AtlasSource
 mod.exports.metrics = function() return renderer:metrics() end
 
 mod.content.render_pipelines:register("krs_building_first", {
   label = "KRS BUILDING FIRST",
-  levels = { "OFF", "BUILDING-02 RAW", "BUILDING-02 RAW", "BUILDING-02 RAW" },
+  levels = { "OFF", "BUILDING-03 RAW", "BUILDING-03 RAW", "BUILDING-03 RAW" },
   hotkey = "8",
   priority = 70,
   available = function() return renderer:available() end,
