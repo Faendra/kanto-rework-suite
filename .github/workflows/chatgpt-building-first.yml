@@ -1,0 +1,27 @@
+name: KRS Building-First gates
+
+on:
+  push:
+    branches:
+      - experiment/chatgpt-sol-building-first
+  workflow_dispatch:
+
+jobs:
+  lua51-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua 5.1
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - name: Parse BUILDING-01 package with Lua 5.1
+        run: |
+          find packages/kanto_rework_building_first -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+          luac5.1 -p tests/building_first_semantic_test.lua
+      - name: Semantic architecture gate
+        run: lua5.1 tests/building_first_semantic_test.lua
+      - name: Prohibit readback and historical polish dependencies
+        run: |
+          ! grep -R "newImageData" packages/kanto_rework_building_first
+          ! grep -RE "SceneStyle|LivePolish|DioramaPolish|NaturalForms|NaturalScale|AtlasWorld|SceneContinuity|TerrainRemaster|LedgeTopology|LedgeHopSmoothing" packages/kanto_rework_building_first
+      - name: Pin compatibility contract to Gen1Recomp v0.2.32+
+        run: grep -F '"game_version": ">=0.2.32 <0.3.0"' packages/kanto_rework_building_first/manifest.json
