@@ -36,30 +36,31 @@ local function isOutdoor(map)
   return OUTDOOR[map and map.def and map.def.tileset] == true
 end
 
-local function copyCommand(cmd, dx, dy)
-  local out = {}
-  for k, v in pairs(cmd or {}) do out[k] = v end
-  out.x = (tonumber(cmd and cmd.x) or 0) + (dx or 0)
-  out.y = (tonumber(cmd and cmd.y) or 0) + (dy or 0)
-  return out
-end
-
-local function scaledProjection(proj, scaleFactor)
-  if not proj or math.abs((scaleFactor or 1) - 1) < 0.0001 then return proj end
+local function transformedProjection(proj, scaleFactor, dx, dy)
+  scaleFactor = scaleFactor or 1
+  dx, dy = dx or 0, dy or 0
+  if not proj or (math.abs(scaleFactor - 1) < 0.0001
+      and math.abs(dx) < 0.0001 and math.abs(dy) < 0.0001) then return proj end
   local proxy = { level = proj.level, tileW = proj.tileW, tileH = proj.tileH,
                   elevation = proj.elevation, spriteScale = proj.spriteScale }
-  proxy.cell = function(_, ...) return proj:cell(...) end
-  proxy.worldPixel = function(_, ...) return proj:worldPixel(...) end
-  proxy.quad = function(_, ...) return proj:quad(...) end
-  proxy.cellPolygon = function(_, ...) return proj:cellPolygon(...) end
-  proxy.depth = function(_, ...) return proj:depth(...) end
+  proxy.cell = function(_, x, y, z) return proj:cell(x + dx, y + dy, z) end
+  proxy.worldPixel = function(_, wx, wy, z)
+    return proj:worldPixel(wx + dx * CELL, wy + dy * CELL, z)
+  end
+  proxy.quad = function(_, x0, y0, x1, y1, z)
+    return proj:quad(x0 + dx, y0 + dy, x1 + dx, y1 + dy, z)
+  end
+  proxy.cellPolygon = function(_, x, y, z)
+    return proj:cellPolygon(x + dx, y + dy, z)
+  end
+  proxy.depth = function(_, x, y, bias) return proj:depth(x + dx, y + dy, bias) end
   proxy.visibleRadius = function() return proj:visibleRadius() end
   proxy.spriteScaleAt = function(_, x, y, z)
-    local s = proj.spriteScaleAt and proj:spriteScaleAt(x, y, z) or 1
+    local s = proj.spriteScaleAt and proj:spriteScaleAt(x + dx, y + dy, z) or 1
     return s * scaleFactor
   end
   proxy.screenScale = function(_, x, y, z)
-    local s = proj.screenScale and proj:screenScale(x, y, z) or proj.tileW or 1
+    local s = proj.screenScale and proj:screenScale(x + dx, y + dy, z) or proj.tileW or 1
     return s * scaleFactor
   end
   return setmetatable(proxy, { __index = proj })
@@ -189,16 +190,15 @@ function NaturalScale.apply(renderer)
   local baseDrawVegetation = renderer.drawVegetation
   renderer.drawVegetation = function(self, proj, cmd)
     -- Preserve the exact vanilla silhouette but break the repeated fence-post
-    -- read with sub-cell render-only offsets and a tiny deterministic scale
-    -- variation. Collision/map coordinates remain untouched.
+    -- read with projection-only sub-cell offsets and tiny deterministic scale
+    -- variation. Source sampling, collision and map coordinates never move.
     local v = variation(cmd, 0)
     local dx = (variation(cmd, 5) - 0.5) * 0.090
     local dy = (variation(cmd, 6) - 0.5) * 0.040
     local factor = (0.70 + v * 0.045) * (0.955 + variation(cmd, 7) * 0.085)
     self.lastScaledTrees = (self.lastScaledTrees or 0) + 1
     self.lastOrganicTreeOffsets = (self.lastOrganicTreeOffsets or 0) + 1
-    return baseDrawVegetation(self, scaledProjection(proj, factor),
-                              copyCommand(cmd, dx, dy))
+    return baseDrawVegetation(self, transformedProjection(proj, factor, dx, dy), cmd)
   end
 
   local baseDrawLowPrism = renderer.drawLowPrism
@@ -214,7 +214,7 @@ function NaturalScale.apply(renderer)
         self.lastSlopedBoulders = (self.lastSlopedBoulders or 0) + 1
         return true
       end
-      return baseDrawLowPrism(self, scaledProjection(proj, 0.42),
+      return baseDrawLowPrism(self, transformedProjection(proj, 0.42),
                               cmd, height, topColor)
     end
 
