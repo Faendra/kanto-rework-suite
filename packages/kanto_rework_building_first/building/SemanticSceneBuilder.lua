@@ -21,13 +21,28 @@ local function sceneKey(map)
   }, ":")
 end
 
-local function groundCells(map)
+local function coveredByBuilding(buildings, x, y)
+  for i = 1, #buildings do
+    local f = buildings[i].footprint
+    if f and x >= f.x0 and x < f.x1 and y >= f.y0 and y < f.y1 then
+      return true
+    end
+  end
+  return false
+end
+
+local function groundCells(map, buildings)
   local out = {}
   local w = math.max(0, math.floor(tonumber(map and map.widthCells) or 0))
   local h = math.max(0, math.floor(tonumber(map and map.heightCells) or 0))
   for y = 0, h - 1 do
     for x = 0, w - 1 do
-      out[#out + 1] = { kind = "ground", x = x, y = y, z = 0 }
+      -- A semantic building owns its full footprint. The vanilla pixels in
+      -- that footprint are material sources for the building and must not
+      -- survive as a second, flattened copy on the ground plane.
+      if not coveredByBuilding(buildings, x, y) then
+        out[#out + 1] = { kind = "ground", x = x, y = y, z = 0 }
+      end
     end
   end
   return out
@@ -45,7 +60,7 @@ function SemanticSceneBuilder:build(map)
   self.cache = {
     key = key,
     map = map,
-    ground = groundCells(map),
+    ground = groundCells(map, buildings),
     buildings = buildings,
   }
   self.cacheKey = key
