@@ -1,6 +1,7 @@
 local root = assert(os.getenv("KRS_ROOT"), "KRS_ROOT is required")
 
-local Profile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletRedHouse.lua")
+local RedProfile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletRedHouse.lua")
+local RivalProfile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletRivalHouse.lua")
 local Builder = dofile(root .. "/packages/kanto_rework_building_first/building/SemanticSceneBuilder.lua")
 local Projection = dofile(root .. "/packages/kanto_rework_building_first/building/SceneProjection.lua")
 local AtlasSource = dofile(root .. "/packages/kanto_rework_building_first/building/AtlasSource.lua")
@@ -56,14 +57,17 @@ local function makeMap()
   }
   function map:warpAtCell(x, y)
     if x == 5 and y == 5 then return { def = { destMap = "REDS_HOUSE_1F", destWarp = 1 } } end
+    if x == 13 and y == 5 then return { def = { destMap = "BLUES_HOUSE", destWarp = 1 } } end
     return nil
   end
   function map:tileAt(tx, ty)
     local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
     local q = (ty % 2) * 2 + (tx % 2)
-    if cx >= 4 and cx <= 7 and cy >= 2 and cy <= 3 then return 20 + q end
-    if cx >= 4 and cx <= 7 and cy >= 4 and cy <= 5 then
-      if cx == 5 and cy == 5 then return 40 end
+    local inRed = cx >= 4 and cx <= 7 and cy >= 2 and cy <= 5
+    local inRival = cx >= 12 and cx <= 15 and cy >= 2 and cy <= 5
+    if (inRed or inRival) and cy <= 3 then return 20 + q end
+    if (inRed or inRival) and cy >= 4 then
+      if (cx == 5 or cx == 13) and cy == 5 then return 40 end
       return 30 + q
     end
     return 1
@@ -93,7 +97,7 @@ local function makeActor()
     end,
     resolveImage = function() return c end,
   }
-  local actor = { id = "RED", px = 5 * 16, py = 7 * 16 }
+  local actor = { id = "RED", px = 9 * 16, py = 7 * 16 }
   function actor:pose() return sprite, self.px, self.py, "down", 0, false, false end
   return actor
 end
@@ -107,31 +111,41 @@ function love.load()
   love.graphics.setDefaultFilter("nearest", "nearest")
   local map = makeMap()
   local actor = makeActor()
-  local builder = Builder.new(Profile)
+  local builder = Builder.new({ RedProfile, RivalProfile })
   local renderer = Renderer.new(Projection, AtlasSource, builder)
   renderer:update(0, 1)
   local state = { map = map, neighbors = {}, entities = { actor }, ghosts = {}, player = actor }
   local ctx = {
-    width = 960, height = 720, vw = 160, vh = 144, scale = 4,
+    width = 1120, height = 720, vw = 160, vh = 144, scale = 4,
     state = state, cam = { x = 0, y = 0 }, bgY = 0,
     drawFx = function() end,
   }
 
-  actor.py = 7 * 16
+  actor.px, actor.py = 9 * 16, 7 * 16
   local front = assert(renderer:drawWorld(ctx), "front raw render missing")
   saveCanvas(front, "building-first-raw-front.png")
   local frontMetrics = renderer:metrics()
 
-  actor.py = 1 * 16
-  local behind = assert(renderer:drawWorld(ctx), "behind raw render missing")
-  saveCanvas(behind, "building-first-raw-behind.png")
-  local behindMetrics = renderer:metrics()
+  actor.px, actor.py = 5 * 16, 1 * 16
+  local redBehind = assert(renderer:drawWorld(ctx), "Red-house behind render missing")
+  saveCanvas(redBehind, "building-first-raw-red-behind.png")
+  local redMetrics = renderer:metrics()
 
-  assert(frontMetrics.buildings == 1 and behindMetrics.buildings == 1, "building count changed")
-  assert(frontMetrics.semanticBuilds == 1 and behindMetrics.semanticBuilds == 1, "scene cache regressed")
-  assert(frontMetrics.materialBuilds == behindMetrics.materialBuilds, "material cache regressed")
-  print(("BUILDING_FIRST_LOVE_OK semantic=%d materials=%d ground=%d drawCalls=%d")
-    :format(behindMetrics.semanticBuilds, behindMetrics.materialBuilds,
-            behindMetrics.groundCells, behindMetrics.drawCalls))
+  actor.px, actor.py = 13 * 16, 1 * 16
+  local rivalBehind = assert(renderer:drawWorld(ctx), "rival-house behind render missing")
+  saveCanvas(rivalBehind, "building-first-raw-rival-behind.png")
+  local rivalMetrics = renderer:metrics()
+
+  for _, metrics in ipairs({ frontMetrics, redMetrics, rivalMetrics }) do
+    assert(metrics.buildings == 2, "building count changed")
+    assert(metrics.semanticBuilds == 1, "scene cache regressed")
+    assert(metrics.groundCells == 328, "semantic footprint mask regressed")
+  end
+  assert(frontMetrics.materialBuilds == redMetrics.materialBuilds
+         and redMetrics.materialBuilds == rivalMetrics.materialBuilds,
+         "material cache regressed")
+  print(("BUILDING_FIRST_LOVE_OK semantic=%d materials=%d buildings=%d ground=%d drawCalls=%d")
+    :format(rivalMetrics.semanticBuilds, rivalMetrics.materialBuilds,
+            rivalMetrics.buildings, rivalMetrics.groundCells, rivalMetrics.drawCalls))
   love.event.quit()
 end

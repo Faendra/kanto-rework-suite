@@ -1,9 +1,24 @@
 local SemanticSceneBuilder = {}
 SemanticSceneBuilder.__index = SemanticSceneBuilder
 
-function SemanticSceneBuilder.new(RedHouseProfile)
+local function normalizeProfiles(profiles)
+  assert(type(profiles) == "table", "SemanticSceneBuilder needs building profiles")
+  if type(profiles.detect) == "function" then return { profiles } end
+
+  local out = {}
+  for i = 1, #profiles do
+    local profile = profiles[i]
+    assert(type(profile) == "table" and type(profile.detect) == "function",
+           "SemanticSceneBuilder building profile #" .. tostring(i) .. " is invalid")
+    out[#out + 1] = profile
+  end
+  assert(#out > 0, "SemanticSceneBuilder needs at least one building profile")
+  return out
+end
+
+function SemanticSceneBuilder.new(BuildingProfiles)
   return setmetatable({
-    RedHouseProfile = assert(RedHouseProfile, "SemanticSceneBuilder needs RedHouseProfile"),
+    BuildingProfiles = normalizeProfiles(BuildingProfiles),
     cacheKey = nil,
     cache = nil,
     buildCount = 0,
@@ -37,9 +52,9 @@ local function groundCells(map, buildings)
   local h = math.max(0, math.floor(tonumber(map and map.heightCells) or 0))
   for y = 0, h - 1 do
     for x = 0, w - 1 do
-      -- A semantic building owns its full footprint. The vanilla pixels in
-      -- that footprint are material sources for the building and must not
-      -- survive as a second, flattened copy on the ground plane.
+      -- Semantic structures own their footprints. Source pixels inside those
+      -- footprints remain available as material input, but are not redrawn as
+      -- a second flattened copy on the world ground.
       if not coveredByBuilding(buildings, x, y) then
         out[#out + 1] = { kind = "ground", x = x, y = y, z = 0 }
       end
@@ -48,15 +63,27 @@ local function groundCells(map, buildings)
   return out
 end
 
+local function detectBuildings(profiles, map)
+  local buildings = {}
+  local ids = {}
+  for i = 1, #profiles do
+    local building = profiles[i].detect(map)
+    if building then
+      local id = tostring(building.id or ("profile:" .. tostring(i)))
+      assert(not ids[id], "duplicate semantic building id: " .. id)
+      ids[id] = true
+      buildings[#buildings + 1] = building
+    end
+  end
+  return buildings
+end
+
 function SemanticSceneBuilder:build(map)
   if not map then return nil end
   local key = sceneKey(map)
   if self.cache and self.cacheKey == key then return self.cache end
 
-  local buildings = {}
-  local redHouse = self.RedHouseProfile.detect(map)
-  if redHouse then buildings[#buildings + 1] = redHouse end
-
+  local buildings = detectBuildings(self.BuildingProfiles, map)
   self.cache = {
     key = key,
     map = map,
