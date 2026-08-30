@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install -y lua5.1
-      - name: Parse BUILDING-03 Lua
+      - name: Parse Pallet World-01 Lua
         run: |
           find packages/kanto_rework_building_first -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
           luac5.1 -p tests/building_first_semantic_test.lua
@@ -36,7 +36,7 @@ jobs:
           ! grep -RE "SceneStyle|LivePolish|DioramaPolish|NaturalForms|NaturalScale|AtlasWorld|SceneContinuity|TerrainRemaster|LedgeTopology|LedgeHopSmoothing" packages/kanto_rework_building_first
 
   gen1recomp-loader:
-    name: Gen1Recomp v0.2.32 BUILDING-03 loader
+    name: Gen1Recomp v0.2.32 Pallet World-01 loader
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y luajit
       - name: Checkout official Gen1Recomp v0.2.32
         run: git clone --depth 1 --branch v0.2.32 https://github.com/bryanthaboi/gen1recomp.git /tmp/gen1recomp
-      - name: Load through official mod loader and render twice
+      - name: Load through official mod loader and exercise lifecycle
         shell: bash
         run: |
           set -o pipefail
@@ -62,7 +62,7 @@ jobs:
           retention-days: 7
 
   love-raw:
-    name: Real LÖVE BUILDING-03 raw raster
+    name: Real LÖVE Pallet World-01 raster
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y love xvfb
           love --version
-      - name: Render raw buildings and occlusion probes
+      - name: Render world, buildings, envelope and occlusion probes
         shell: bash
         run: |
           set -euo pipefail
@@ -88,7 +88,7 @@ jobs:
           test -s building-first-raw-rival-behind.png
           test -s building-first-raw-oak-behind.png
           test -s building-first-raw-connected.png
-      - name: Upload BUILDING-03 raw captures
+      - name: Upload Pallet World-01 raw captures
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -116,14 +116,14 @@ jobs:
           mkdir -p dist
           cp -a packages/kanto_rework_building_first dist/kanto_rework_building_first
           cd dist
-          zip -qr "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.zip" kanto_rework_building_first
-          sha256sum "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.zip" > "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.sha256"
+          zip -qr "kanto_rework_building_first-PALLET-WORLD01-${GITHUB_SHA:0:8}.zip" kanto_rework_building_first
+          sha256sum "kanto_rework_building_first-PALLET-WORLD01-${GITHUB_SHA:0:8}.zip" > "kanto_rework_building_first-PALLET-WORLD01-${GITHUB_SHA:0:8}.sha256"
       - name: Upload installable build
         uses: actions/upload-artifact@v4
         with:
           name: building-first-installable
           path: |
-            dist/kanto_rework_building_first-BUILDING03-WORLD01-*.zip
-            dist/kanto_rework_building_first-BUILDING03-WORLD01-*.sha256
+            dist/kanto_rework_building_first-PALLET-WORLD01-*.zip
+            dist/kanto_rework_building_first-PALLET-WORLD01-*.sha256
           if-no-files-found: error
           retention-days: 7
