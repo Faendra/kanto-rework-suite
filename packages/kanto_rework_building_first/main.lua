@@ -56,8 +56,8 @@ mod.exports.atlasSource = AtlasSource
 mod.exports.metrics = function() return renderer:metrics() end
 
 mod.content.render_pipelines:register("krs_building_first", {
-  label = "KRS PALLET WORLD",
-  levels = { "OFF", "PALLET WORLD-01", "PALLET WORLD-01", "PALLET WORLD-01" },
+  label = "KRS ARCH VOLUME",
+  levels = { "OFF", "ARCH-VOLUME-01", "ARCH-VOLUME-01", "ARCH-VOLUME-01" },
   hotkey = "8",
   priority = 70,
   available = function() return renderer:available() end,
