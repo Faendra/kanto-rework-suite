@@ -6,11 +6,17 @@ local WorldEnvelope = {}
 -- creates VISUAL-ONLY objects outside them so the 3/4 camera reads a larger
 -- environment instead of a rectangular map sheet. No collision, warp,
 -- walkability or gameplay terrain is created here.
+--
+-- The forest envelope is intentionally denser close to the authoritative
+-- world boundary. That inner belt hides the physical edge of a map without
+-- falling back to a planar border texture. Farther rows are sparser so the
+-- silhouette still reads as a forest rather than a uniform wall.
 
 local DEFAULT_DEPTH = 7
-local TREE_STEP = 1.38
-local TREE_WIDTH = 1.78
-local MIN_DISTANCE = 0.30
+local TREE_STEP = 1.30
+local TREE_WIDTH = 1.96
+local MIN_DISTANCE = 0.08
+local INNER_BELT_DEPTH = 2.80
 
 local function rectFor(scene)
   local map = scene and scene.map
@@ -78,15 +84,54 @@ local function distanceToWorld(rects, x, y)
   return best or math.huge
 end
 
-local function hash(ix, iy)
-  return math.abs(ix * 73856093 + iy * 19349663) % 104729
+local function hash(ix, iy, pass)
+  return math.abs(ix * 73856093 + iy * 19349663 + (pass or 0) * 83492791) % 104729
 end
 
-local function deterministicJitter(ix, iy)
-  local h = hash(ix, iy)
+local function deterministicJitter(ix, iy, pass)
+  local h = hash(ix, iy, pass)
   local a = (h % 17) - 8
   local b = (math.floor(h / 17) % 13) - 6
   return a * 0.018, b * 0.018, h
+end
+
+local function addTree(out, rects, x, y, row, col, pass, maxDistance)
+  if insideAny(rects, x, y) then return end
+  local d = distanceToWorld(rects, x, y)
+  if d < MIN_DISTANCE or d > maxDistance then return end
+
+  local jx, jy, h = deterministicJitter(col + row * 97, row, pass)
+  local size = 0.93 + (h % 7) * 0.022
+  out.trees[#out.trees + 1] = {
+    kind = "tree",
+    x = x + jx,
+    y = y + jy,
+    z = 0,
+    width = TREE_WIDTH * size,
+    row = row,
+    belt = pass == 0 and "outer" or "inner",
+  }
+end
+
+local function populatePass(out, rects, pass, maxDistance)
+  local step = TREE_STEP
+  local phaseX = pass == 0 and 0 or step * 0.52
+  local phaseY = pass == 0 and 0 or step * 0.46
+  local row, y = 0, out.bounds.y0 + phaseY
+
+  while y < out.bounds.y1 do
+    local stagger = (row % 2 == 0) and 0 or step * 0.48
+    local col, x = 0, out.bounds.x0 + phaseX
+    while x < out.bounds.x1 do
+      local cx = x + step * 0.5 + stagger
+      local cy = y + step * 0.60
+      addTree(out, rects, cx, cy, row, col, pass, maxDistance)
+      col = col + 1
+      x = x + step
+    end
+    row = row + 1
+    y = y + step
+  end
 end
 
 function WorldEnvelope.build(state, scenes, depth)
@@ -106,39 +151,17 @@ function WorldEnvelope.build(state, scenes, depth)
     y1 = bounds.y1 + depth,
   }
 
-  local row, y = 0, out.bounds.y0
-  while y < out.bounds.y1 do
-    local stagger = (row % 2 == 0) and 0 or TREE_STEP * 0.48
-    local col, x = 0, out.bounds.x0
-    while x < out.bounds.x1 do
-      local cx = x + TREE_STEP * 0.5 + stagger
-      local cy = y + TREE_STEP * 0.60
-      if not insideAny(rects, cx, cy) then
-        local d = distanceToWorld(rects, cx, cy)
-        if d >= MIN_DISTANCE and d <= depth + TREE_STEP * 0.8 then
-          local jx, jy, h = deterministicJitter(col + row * 97, row)
-          local size = 0.93 + (h % 7) * 0.022
-          out.trees[#out.trees + 1] = {
-            kind = "tree",
-            x = cx + jx,
-            y = cy + jy,
-            z = 0,
-            width = TREE_WIDTH * size,
-            row = row,
-          }
-        end
-      end
-      col = col + 1
-      x = x + TREE_STEP
-    end
-    row = row + 1
-    y = y + TREE_STEP
-  end
+  -- Sparse full-depth forest, then a second half-step pass only near the
+  -- authoritative map boundary. The latter closes visible gaps between
+  -- billboard canopies without multiplying the whole envelope cost.
+  populatePass(out, rects, 0, depth + TREE_STEP * 0.8)
+  populatePass(out, rects, 1, math.min(depth, INNER_BELT_DEPTH))
 
   return out
 end
 
 WorldEnvelope.DEFAULT_DEPTH = DEFAULT_DEPTH
 WorldEnvelope.TREE_STEP = TREE_STEP
+WorldEnvelope.INNER_BELT_DEPTH = INNER_BELT_DEPTH
 
 return WorldEnvelope
