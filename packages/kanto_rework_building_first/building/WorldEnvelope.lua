@@ -16,7 +16,7 @@ local WorldEnvelope = {}
 -- and no projected "sheet with holes" can drift out of alignment.
 
 local DEFAULT_DEPTH = 7
-local FLOOR_DEPTH = 8
+local FLOOR_DEPTH = 4
 local TREE_STEP = 1.30
 local TREE_WIDTH = 1.96
 local MIN_DISTANCE = 0.08
