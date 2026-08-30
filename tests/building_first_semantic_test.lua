@@ -82,12 +82,21 @@ eq(red.architecture.ridgeInsetX, 1.0, "Red hip ridge inset")
 eq(rival.architecture.ridgeInsetX, 1.0, "Rival hip ridge inset")
 eq(oak.architecture.ridgeInsetX, 1.0, "Oak hip ridge inset")
 
-eq(red.materials.roof.y0, 3, "Red roof material row")
-eq(red.materials.roof.y1, 3, "Red roof material depth")
-assert(red.materials.roofLeft and red.materials.roofRight,
-       "Red hip roof must expose authored side materials")
+-- VISUAL-SKIN-FIRERED-01: Red House uses semantic FireRed material slots while
+-- Rival/Oak deliberately retain their Gen1 materials for the A/B prototype.
+eq(red.visualSkin, "FIRERED_PALLET_HOUSE_V1", "Red visual skin")
+eq(red.materials.roof.x0, "FIRERED:roof", "Red FireRed roof material")
+eq(red.materials.roofLeft.x0, "FIRERED:roofLeft", "Red FireRed left roof material")
+eq(red.materials.roofRight.x0, "FIRERED:roofRight", "Red FireRed right roof material")
+eq(red.materials.facade.x0, "FIRERED:facade", "Red FireRed facade material")
+eq(red.materials.side.x0, "FIRERED:side", "Red FireRed side material")
+eq(red.materials.door.x, "FIRERED:door", "Red FireRed door material")
 assert(rival.materials.roofLeft and rival.materials.roofRight,
        "Rival hip roof must expose authored side materials")
+assert(type(rival.materials.roof.x0) == "number",
+       "Rival must remain on Gen1 material source during FireRed A/B test")
+assert(type(oak.materials.roof.x0) == "number",
+       "Oak must remain on Gen1 material source during FireRed A/B test")
 
 for _, key in ipairs({
   "wallHeight", "roofPeak", "roofThickness", "roofOverhang",
@@ -171,5 +180,13 @@ for _, forbidden in ipairs({
   assert(not source:find(forbidden, 1, true), "building-first renderer imports forbidden historical layer: " .. forbidden)
 end
 
-print(("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 depth=4 envelopeTrees=%d connectedTrees=%d")
+local atlasHandle = assert(io.open("packages/kanto_rework_building_first/building/AtlasSource.lua", "rb"))
+local atlasSource = atlasHandle:read("*a")
+atlasHandle:close()
+assert(atlasSource:find('FIRERED_PREFIX = "FIRERED:"', 1, true),
+       "FireRed semantic material source missing")
+assert(not atlasSource:find("newImageData", 1, true),
+       "FireRed material source must not use GPU readback")
+
+print(("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 depth=4 skin=FIRERED envelopeTrees=%d connectedTrees=%d")
   :format(#envelope.trees, #connectedEnvelope.trees))
