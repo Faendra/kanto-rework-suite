@@ -80,12 +80,14 @@ jobs:
             -name 'building-first-raw-pallet.png' -o \
             -name 'building-first-raw-red-behind.png' -o \
             -name 'building-first-raw-rival-behind.png' -o \
-            -name 'building-first-raw-oak-behind.png' \
+            -name 'building-first-raw-oak-behind.png' -o \
+            -name 'building-first-raw-connected.png' \
           \) -exec cp '{}' "$GITHUB_WORKSPACE/" \;
           test -s building-first-raw-pallet.png
           test -s building-first-raw-red-behind.png
           test -s building-first-raw-rival-behind.png
           test -s building-first-raw-oak-behind.png
+          test -s building-first-raw-connected.png
       - name: Upload BUILDING-03 raw captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,5 +99,6 @@ jobs:
             building-first-raw-red-behind.png
             building-first-raw-rival-behind.png
             building-first-raw-oak-behind.png
+            building-first-raw-connected.png
           if-no-files-found: warn
           retention-days: 7
