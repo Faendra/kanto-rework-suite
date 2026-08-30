@@ -10,6 +10,18 @@ local Projection = dofile(root .. "/packages/kanto_rework_building_first/buildin
 local AtlasSource = dofile(root .. "/packages/kanto_rework_building_first/building/AtlasSource.lua")
 local Renderer = dofile(root .. "/packages/kanto_rework_building_first/building/BuildingRenderer.lua")
 
+local function syntheticTreePixel(id, x, y)
+  local ox = (id == 71 or id == 73) and 8 or 0
+  local oy = (id == 72 or id == 73) and 8 or 0
+  local gx, gy = x + ox, y + oy
+  local dx, dy = gx - 7.5, gy - 7.0
+  local canopy = (dx * dx) / 54 + (dy * dy) / 46 <= 1
+  if not canopy then return 1, 1, 1, 1 end
+  local edge = (dx * dx) / 42 + (dy * dy) / 35 >= 0.70
+  local v = edge and 0.25 or (((gx + gy) % 3 == 0) and 0.33 or 0.43)
+  return v * 0.68, v, v * 0.60, 1
+end
+
 local function tileColor(id, x, y)
   if id == 1 then
     local c = ((x + y) % 4 == 0) and 0.68 or 0.76
@@ -18,14 +30,7 @@ local function tileColor(id, x, y)
     local c = ((x + y) % 4 == 0) and 0.38 or 0.52
     return c * 0.72, c, c * 0.70, 1
   elseif id >= 70 and id <= 73 then
-    -- Synthetic tree-wall tiles: lightest shade is empty/background and is
-    -- keyed by the renderer; darker pixels form a deliberately chunky Gen1
-    -- foliage silhouette for the real LÖVE gate.
-    local dx, dy = x - 3.5, y - 3.0
-    local canopy = dx * dx + dy * dy < 14 or (y >= 4 and x >= 2 and x <= 5)
-    if not canopy then return 1, 1, 1, 1 end
-    local v = ((x + y + id) % 3 == 0) and 0.24 or 0.40
-    return v * 0.70, v, v * 0.62, 1
+    return syntheticTreePixel(id, x, y)
   elseif id >= 20 and id <= 23 then
     local stripe = ((x + y + id) % 5) < 2
     local c = stripe and 0.22 or 0.42
@@ -76,8 +81,12 @@ local function makeAtlas()
   return image, quads
 end
 
-local TREE_BLOCK = {}
-for i = 1, 16 do TREE_BLOCK[i] = 70 + ((i - 1) % 4) end
+local TREE_BLOCK = {
+  70,71,70,71,
+  72,73,72,73,
+  70,71,70,71,
+  72,73,72,73,
+}
 local OVERWORLD_TILESET = { blocks = { [16] = TREE_BLOCK } }
 
 local function makeMap()
