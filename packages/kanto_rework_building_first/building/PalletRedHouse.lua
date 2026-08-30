@@ -17,10 +17,15 @@ function PalletRedHouse.detect(map)
     return nil
   end
 
-  -- The Gen1 drawing mixes roof depth and facade height in the same flat
-  -- footprint. groundClaim removes the complete vanilla projection from the
-  -- ground pass; footprint is the actual spatial depth used by the 3D model.
-  -- The facade remains anchored on the canonical entrance row y=5.
+  -- ARCHITECTURE-VOLUME-01
+  -- groundClaim is the complete vanilla projection removed from the flat map.
+  -- architecture.footprint is independently authored, but for this house the
+  -- observed projection depth is also occupied by the reconstructed building.
+  -- Keeping those concepts separate prevents a future source-image change from
+  -- silently redefining the 3D volume.
+  local volume = { x0 = 4, y0 = 2, x1 = 8, y1 = 6 }
+  local occlusion = { x0 = 3.82, y0 = 1.82, x1 = 8.18, y1 = 6.18 }
+
   return {
     kind = "building",
     semantic = "HOUSE",
@@ -28,28 +33,41 @@ function PalletRedHouse.detect(map)
     id = "PALLET_RED_HOUSE",
     mapId = "PALLET_TOWN",
     groundClaim = { x0 = 4, y0 = 2, x1 = 8, y1 = 6 },
-    footprint = { x0 = 4, y0 = 5, x1 = 8, y1 = 6 },
+
+    -- Compatibility alias consumed by the current generic renderer. It is
+    -- intentionally the architectural footprint, never inferred from pixels.
+    footprint = volume,
+    gameplayFootprint = { x0 = 4, y0 = 2, x1 = 8, y1 = 6 },
     door = { x = 5, y = 5, width = 1 },
+
     architecture = {
+      footprint = volume,
+      width = 4.0,
+      depth = 4.0,
       wallHeight = 1.36,
       roofStyle = "hip",
       roofPeak = 2.34,
       roofThickness = 0.14,
       roofOverhang = 0.18,
-      ridgeY = 5.5,
+      -- Full-depth house: ridge is centered between rear y=2 and front y=6.
+      ridgeY = 4.0,
       ridgeInsetX = 1.0,
       doorHeight = 0.92,
       shadowInset = 0.04,
-      -- The authored house roof occupies one 16px cell-row. Keep its lower
-      -- quarter for the eave/fascia instead of stretching it over the slope.
       roofUV = { 0, 0, 1, 0, 1, 0.75, 0, 0.75 },
       fasciaUV = { 0, 0.75, 1, 0.75, 1, 1, 0, 1 },
       roofSideUV = { 0, 0, 1, 0, 1, 1, 0, 1 },
     },
+
+    -- Visual occlusion is allowed to include the authored roof overhang. This
+    -- metadata does not alter Gen1Recomp collision, warp or actor coordinates.
+    occlusion = {
+      footprint = occlusion,
+      frontY = 6.18,
+      rearY = 1.82,
+    },
+
     materials = {
-      -- The old BUILDING-01 path used y=2..3 as one roof texture. The upper
-      -- row is part of the flat projection around the building; the actual
-      -- roof band is y=3. Split its striped hips from its central field.
       roof = { x0 = 5, y0 = 3, x1 = 6, y1 = 3 },
       roofLeft = { x0 = 4, y0 = 3, x1 = 4, y1 = 3 },
       roofRight = { x0 = 7, y0 = 3, x1 = 7, y1 = 3 },
