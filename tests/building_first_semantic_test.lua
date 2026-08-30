@@ -35,25 +35,42 @@ eq(oak.semantic, "LAB", "Oak semantic kind")
 eq(red.family, "PALLET_HOUSE", "Red family")
 eq(rival.family, "PALLET_HOUSE", "Rival family")
 eq(oak.family, "PALLET_LAB", "Oak family")
-eq(red.architecture.roofStyle, "gable", "Red roof style")
-eq(rival.architecture.roofStyle, "gable", "Rival roof style")
+eq(red.architecture.roofStyle, "hip", "Red roof style")
+eq(rival.architecture.roofStyle, "hip", "Rival roof style")
 eq(oak.architecture.roofStyle, "hip", "Oak roof style")
 
+-- Physical footprints encode actual ground depth. The larger groundClaim is
+-- the source sprite rectangle suppressed from the flat vanilla pass.
 eq(red.footprint.x0, 4, "Red footprint x0")
-eq(red.footprint.y0, 2, "Red footprint y0")
+eq(red.footprint.y0, 5, "Red physical footprint y0")
 eq(red.footprint.x1, 8, "Red footprint x1 boundary")
 eq(red.footprint.y1, 6, "Red footprint y1 boundary")
+eq(red.groundClaim.y0, 2, "Red vanilla claim y0")
 eq(rival.footprint.x0, 12, "Rival footprint x0")
-eq(rival.footprint.y0, 2, "Rival footprint y0")
+eq(rival.footprint.y0, 5, "Rival physical footprint y0")
 eq(rival.footprint.x1, 16, "Rival footprint x1 boundary")
 eq(rival.footprint.y1, 6, "Rival footprint y1 boundary")
+eq(rival.groundClaim.y0, 2, "Rival vanilla claim y0")
 eq(oak.footprint.x0, 10, "Oak footprint x0")
-eq(oak.footprint.y0, 8, "Oak footprint y0")
+eq(oak.footprint.y0, 10, "Oak physical footprint y0")
 eq(oak.footprint.x1, 16, "Oak footprint x1 boundary")
 eq(oak.footprint.y1, 12, "Oak footprint y1 boundary")
+eq(oak.groundClaim.y0, 8, "Oak vanilla claim y0")
 eq(oak.door.x, 12, "Oak door x")
 eq(oak.door.y, 11, "Oak door y")
+eq(red.architecture.ridgeInsetX, 1.0, "Red hip ridge inset")
+eq(rival.architecture.ridgeInsetX, 1.0, "Rival hip ridge inset")
 eq(oak.architecture.ridgeInsetX, 1.0, "Oak hip ridge inset")
+
+-- The houses now source only their true 16px roof band, split into central
+-- and lateral roof materials instead of feeding facade/projection rows into
+-- the roof mesh.
+eq(red.materials.roof.y0, 3, "Red roof material row")
+eq(red.materials.roof.y1, 3, "Red roof material depth")
+assert(red.materials.roofLeft and red.materials.roofRight,
+       "Red hip roof must expose authored side materials")
+assert(rival.materials.roofLeft and rival.materials.roofRight,
+       "Rival hip roof must expose authored side materials")
 
 for _, key in ipairs({
   "wallHeight", "roofPeak", "roofThickness", "roofOverhang",
@@ -77,7 +94,7 @@ for _, cell in ipairs(scene1.ground) do
   local inRival = cell.x >= 12 and cell.x < 16 and cell.y >= 2 and cell.y < 6
   local inOak = cell.x >= 10 and cell.x < 16 and cell.y >= 8 and cell.y < 12
   assert(not inRed and not inRival and not inOak,
-         "semantic building footprint leaked back into flat ground")
+         "vanilla building projection leaked back into flat ground")
 end
 eq(builder.buildCount, 1, "initial semantic build")
 local scene2 = builder:build(map)
@@ -108,4 +125,4 @@ for _, forbidden in ipairs({
   assert(not source:find(forbidden, 1, true), "building-first renderer imports forbidden historical layer: " .. forbidden)
 end
 
-print("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 roofStyles=gable,hip")
+print("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 roofStyles=hip physicalDepth=1,1,2")
