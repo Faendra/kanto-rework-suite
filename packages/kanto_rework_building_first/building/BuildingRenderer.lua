@@ -67,11 +67,12 @@ local function regionTexture(source, host, map, region)
   return source.regionTexture(host, map, region.x0, region.y0, region.x1, region.y1)
 end
 
-function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder)
+function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene)
   return setmetatable({
     Projection = assert(Projection),
     AtlasSource = assert(AtlasSource),
     SceneBuilder = assert(SceneBuilder),
+    WorldScene = assert(WorldScene),
     level = 0,
     mesh = nil,
     output = nil,
@@ -81,12 +82,14 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder)
     prepared = nil,
     atlasCellCache = {},
     atlasRegionCache = {},
+    atlasFillCache = {},
     resourceIdentityReady = false,
     resourceMap = nil,
     resourceMapId = nil,
     resourceRenderer = nil,
     resourceImage = nil,
     resourceQuads = nil,
+    resourceWorldKey = nil,
     resourceCtxW = nil,
     resourceCtxH = nil,
     resourceGraphicsW = nil,
@@ -96,6 +99,8 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder)
     lastGroundCells = 0,
     lastActors = 0,
     lastBuildings = 0,
+    lastWorldScenes = 0,
+    lastFillActive = false,
     lastDrawCalls = 0,
   }, BuildingRenderer)
 end
@@ -112,11 +117,9 @@ end
 
 -- Atlas-derived materials are GPU canvases owned by this renderer. A new
 -- game/save session can replace map.renderer (or the runtime atlas) while the
--- render-pipeline Lua object survives. Likewise a desktop video-mode switch
--- can replace the graphics backing store. In either case retaining prepared
--- material canvases produces a scene where CPU-drawn shadows/sprites survive
--- but every mesh-textured surface disappears. Treat those boundaries as a new
--- resource generation and rebuild once, before the next frame is prepared.
+-- render-pipeline Lua object survives. Connected neighbor maps are part of
+-- that generation too: changing a neighbor set must not leave stale atlas
+-- canvases at world seams.
 function BuildingRenderer:dropTransientResources()
   release(self.mesh)
   release(self.output)
@@ -126,11 +129,13 @@ function BuildingRenderer:dropTransientResources()
   self.AtlasSource.invalidate(self)
 end
 
-function BuildingRenderer:syncResourceIdentity(ctx, map)
+function BuildingRenderer:syncResourceIdentity(ctx, state)
+  local map = state and state.map
   local r = map and map.renderer
   local ctxW = math.max(1, math.floor(tonumber(ctx and ctx.width) or 1))
   local ctxH = math.max(1, math.floor(tonumber(ctx and ctx.height) or 1))
   local graphicsW, graphicsH = graphicsDimensions()
+  local worldKey = self.WorldScene.identity(state)
 
   local changed = self.resourceIdentityReady and (
        self.resourceMap ~= map
@@ -138,6 +143,7 @@ function BuildingRenderer:syncResourceIdentity(ctx, map)
     or self.resourceRenderer ~= r
     or self.resourceImage ~= (r and r.image)
     or self.resourceQuads ~= (r and r.quads)
+    or self.resourceWorldKey ~= worldKey
     or self.resourceCtxW ~= ctxW
     or self.resourceCtxH ~= ctxH
     or self.resourceGraphicsW ~= graphicsW
@@ -154,6 +160,7 @@ function BuildingRenderer:syncResourceIdentity(ctx, map)
   self.resourceRenderer = r
   self.resourceImage = r and r.image or nil
   self.resourceQuads = r and r.quads or nil
+  self.resourceWorldKey = worldKey
   self.resourceCtxW, self.resourceCtxH = ctxW, ctxH
   self.resourceGraphicsW, self.resourceGraphicsH = graphicsW, graphicsH
 end
@@ -201,34 +208,69 @@ function BuildingRenderer:drawFace(proj, texture, points, color, uv)
   return true
 end
 
-function BuildingRenderer:prepareScene(map)
-  local scene = self.SceneBuilder:build(map)
-  if not scene then return nil end
-  if self.prepared and self.preparedKey == scene.key then return self.prepared end
+-- Build one connected render scene from the primary map plus the exact maps
+-- Gen1Recomp already exposes in state.neighbors. No geometry is inferred at
+-- seams: each neighbor keeps its own vanilla cells and receives only its
+-- engine-provided world offset.
+function BuildingRenderer:prepareScene(state)
+  local worldKey = self.WorldScene.identity(state)
+  if self.prepared and self.preparedKey == worldKey then return self.prepared end
 
-  local prepared = { scene = scene, ground = {}, buildings = {} }
-  for i = 1, #scene.ground do
-    local cell = scene.ground[i]
-    prepared.ground[#prepared.ground + 1] = {
-      x = cell.x, y = cell.y, z = cell.z,
-      texture = self.AtlasSource.cellTexture(self, map, cell.x, cell.y),
-    }
+  local worldScenes = self.WorldScene.collect(state)
+  local prepared = {
+    worldKey = worldKey,
+    worldScenes = worldScenes,
+    ground = {},
+    buildings = {},
+  }
+
+  for _, world in ipairs(worldScenes) do
+    local scene = self.SceneBuilder:build(world.map)
+    if scene then
+      for i = 1, #scene.ground do
+        local cell = scene.ground[i]
+        prepared.ground[#prepared.ground + 1] = {
+          x = cell.x + world.cx,
+          y = cell.y + world.cy,
+          z = cell.z,
+          texture = self.AtlasSource.cellTexture(self, world.map, cell.x, cell.y),
+        }
+      end
+      for i = 1, #scene.buildings do
+        local b = scene.buildings[i]
+        local m = b.materials
+        prepared.buildings[#prepared.buildings + 1] = {
+          semantic = b,
+          ox = world.cx,
+          oy = world.cy,
+          roof = regionTexture(self.AtlasSource, self, world.map, m.roof),
+          roofLeft = regionTexture(self.AtlasSource, self, world.map, m.roofLeft),
+          roofRight = regionTexture(self.AtlasSource, self, world.map, m.roofRight),
+          facade = regionTexture(self.AtlasSource, self, world.map, m.facade),
+          side = regionTexture(self.AtlasSource, self, world.map, m.side),
+          door = m.door and self.AtlasSource.cellTexture(self, world.map, m.door.x, m.door.y) or nil,
+        }
+      end
+    end
   end
-  for i = 1, #scene.buildings do
-    local b = scene.buildings[i]
-    local m = b.materials
-    prepared.buildings[#prepared.buildings + 1] = {
-      semantic = b,
-      roof = regionTexture(self.AtlasSource, self, map, m.roof),
-      roofLeft = regionTexture(self.AtlasSource, self, map, m.roofLeft),
-      roofRight = regionTexture(self.AtlasSource, self, map, m.roofRight),
-      facade = regionTexture(self.AtlasSource, self, map, m.facade),
-      side = regionTexture(self.AtlasSource, self, map, m.side),
-      door = m.door and self.AtlasSource.cellTexture(self, map, m.door.x, m.door.y) or nil,
-    }
-  end
-  self.preparedKey, self.prepared = scene.key, prepared
+
+  prepared.fillBounds = self.WorldScene.bounds(worldScenes)
+  prepared.fillTexture = self.AtlasSource.worldFillTexture(
+    self, state and state.map, worldScenes, prepared.fillBounds)
+
+  self.preparedKey, self.prepared = worldKey, prepared
   return prepared
+end
+
+function BuildingRenderer:drawFiller(proj, prepared)
+  local b = prepared and prepared.fillBounds
+  local texture = prepared and prepared.fillTexture
+  if not (b and texture) then return end
+  self:drawFace(proj, texture, {
+    { b.x0, b.y0, 0 }, { b.x1, b.y0, 0 },
+    { b.x1, b.y1, 0 }, { b.x0, b.y1, 0 },
+  }, COLORS.pixel)
+  self.lastFillActive = true
 end
 
 function BuildingRenderer:drawGround(proj, prepared)
@@ -242,14 +284,16 @@ function BuildingRenderer:drawGround(proj, prepared)
   end
 end
 
-function BuildingRenderer:drawBuildingShadow(proj, profile)
+function BuildingRenderer:drawBuildingShadow(proj, pb)
+  local profile = pb.semantic
+  local ox, oy = pb.ox or 0, pb.oy or 0
   local f, a = profile.footprint, profile.architecture
   local inset = a.shadowInset or 0.04
   local poly = projectFace(proj, {
-    { f.x0 + inset, f.y0 + inset, 0.004 },
-    { f.x1 + 0.12, f.y0 + 0.10, 0.004 },
-    { f.x1 + 0.18, f.y1 + 0.18, 0.004 },
-    { f.x0 + 0.08, f.y1 + 0.14, 0.004 },
+    { f.x0 + ox + inset, f.y0 + oy + inset, 0.004 },
+    { f.x1 + ox + 0.12, f.y0 + oy + 0.10, 0.004 },
+    { f.x1 + ox + 0.18, f.y1 + oy + 0.18, 0.004 },
+    { f.x0 + ox + 0.08, f.y1 + oy + 0.14, 0.004 },
   })
   love.graphics.setColor(0, 0, 0, 0.20)
   love.graphics.polygon("fill", unpackValues(poly))
@@ -284,9 +328,6 @@ function BuildingRenderer:drawHipRoof(proj, pb, xL, xR, yB, yF, wallH, peak, rid
   local fasciaUV = a.fasciaUV or DEFAULT_FASCIA_UV
   local sideUV = a.roofSideUV or DEFAULT_ROOF_UV
 
-  -- A hip roof has a shortened ridge. The front/back planes are trapezoids;
-  -- the side hips are triangles represented as degenerate quads so the same
-  -- four-vertex mesh path remains reusable.
   self:drawFace(proj, pb.roof, {
     { xL, yB, wallH }, { xR, yB, wallH },
     { ridgeR, ridge, peak }, { ridgeL, ridge, peak },
@@ -317,9 +358,11 @@ end
 
 function BuildingRenderer:drawBuilding(proj, pb)
   local p = pb.semantic
+  local ox, oy = pb.ox or 0, pb.oy or 0
   local f, a = p.footprint, p.architecture
-  local x0, x1, y0, y1 = f.x0, f.x1, f.y0, f.y1
-  local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY
+  local x0, x1 = f.x0 + ox, f.x1 + ox
+  local y0, y1 = f.y0 + oy, f.y1 + oy
+  local wallH, peak, ridge = a.wallHeight, a.roofPeak, a.ridgeY + oy
   local over, thick = a.roofOverhang, a.roofThickness
   local xL, xR, yB, yF = x0 - over, x1 + over, y0 - over, y1 + over
 
@@ -338,7 +381,8 @@ function BuildingRenderer:drawBuilding(proj, pb)
     self:drawGableRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
   end
 
-  local dx0, dx1 = p.door.x, p.door.x + p.door.width
+  local dx0 = p.door.x + ox
+  local dx1 = p.door.x + p.door.width + ox
   self:drawFace(proj, pb.door, {
     { dx0, y1 + 0.006, 0 }, { dx1, y1 + 0.006, 0 },
     { dx1, y1 + 0.006, a.doorHeight }, { dx0, y1 + 0.006, a.doorHeight },
@@ -399,10 +443,11 @@ function BuildingRenderer:drawObjects(ctx, proj, prepared)
   for i = 1, #prepared.buildings do
     local pb = prepared.buildings[i]
     local f = pb.semantic.footprint
-    self:drawBuildingShadow(proj, pb.semantic)
+    local ox, oy = pb.ox or 0, pb.oy or 0
+    self:drawBuildingShadow(proj, pb)
     commands[#commands + 1] = {
       kind = "building", value = pb,
-      depth = proj:depth((f.x0 + f.x1) * 0.5, f.y1 + 0.10, 0.18),
+      depth = proj:depth((f.x0 + f.x1) * 0.5 + ox, f.y1 + oy + 0.10, 0.18),
     }
   end
   local actors = self:collectActors(ctx.state, proj)
@@ -425,17 +470,20 @@ function BuildingRenderer:drawWorld(ctx)
   if not (ctx and ctx.state and ctx.state.map and ctx.width and ctx.height) then return nil end
   if not self:available() or not self.AtlasSource.available(ctx.state.map) then return nil end
 
-  self:syncResourceIdentity(ctx, ctx.state.map)
+  self:syncResourceIdentity(ctx, ctx.state)
   self:ensureResources(ctx)
   self.lastGroundCells, self.lastActors, self.lastBuildings, self.lastDrawCalls = 0, 0, 0, 0
-  local prepared = self:prepareScene(ctx.state.map)
+  self.lastWorldScenes, self.lastFillActive = 0, false
+  local prepared = self:prepareScene(ctx.state)
   if not prepared then return nil end
+  self.lastWorldScenes = #prepared.worldScenes
   local proj = self.Projection.new(ctx, math.max(1, math.min(3, self.level)))
 
   love.graphics.push("all")
   love.graphics.setCanvas(self.output)
   rgba(COLORS.sky)
   love.graphics.rectangle("fill", 0, 0, self.outputW, self.outputH)
+  self:drawFiller(proj, prepared)
   self:drawGround(proj, prepared)
   self:drawObjects(ctx, proj, prepared)
   if type(ctx.drawFx) == "function" then
@@ -454,6 +502,8 @@ function BuildingRenderer:metrics()
     groundCells = self.lastGroundCells,
     buildings = self.lastBuildings,
     actors = self.lastActors,
+    worldScenes = self.lastWorldScenes,
+    fillActive = self.lastFillActive,
     drawCalls = self.lastDrawCalls,
   }
 end
@@ -466,6 +516,7 @@ function BuildingRenderer:invalidate()
   self.resourceRenderer = nil
   self.resourceImage = nil
   self.resourceQuads = nil
+  self.resourceWorldKey = nil
   self.resourceCtxW, self.resourceCtxH = nil, nil
   self.resourceGraphicsW, self.resourceGraphicsH = nil, nil
   self.SceneBuilder:invalidate()
