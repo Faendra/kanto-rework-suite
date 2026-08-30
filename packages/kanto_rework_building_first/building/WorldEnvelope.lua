@@ -7,16 +7,21 @@ local WorldEnvelope = {}
 -- environment instead of a rectangular map sheet. No collision, warp,
 -- walkability or gameplay terrain is created here.
 --
--- The forest envelope is intentionally denser close to the authoritative
--- world boundary. That inner belt hides the physical edge of a map without
--- falling back to a planar border texture. Farther rows are sparser so the
--- silhouette still reads as a forest rather than a uniform wall.
+-- The envelope has two independent visual layers:
+--   * a local forest floor, represented as row spans outside gameplay maps;
+--   * billboard trees, denser near the authoritative world boundary.
+--
+-- The floor is deliberately NOT one huge texture quad. It is clipped around
+-- every authoritative map rectangle, so connected maps remain real terrain
+-- and no projected "sheet with holes" can drift out of alignment.
 
 local DEFAULT_DEPTH = 7
+local FLOOR_DEPTH = 12
 local TREE_STEP = 1.30
 local TREE_WIDTH = 1.96
 local MIN_DISTANCE = 0.08
 local INNER_BELT_DEPTH = 2.80
+local FLOOR_Z = -0.035
 
 local function rectFor(scene)
   local map = scene and scene.map
@@ -113,16 +118,16 @@ local function addTree(out, rects, x, y, row, col, pass, maxDistance)
   }
 end
 
-local function populatePass(out, rects, pass, maxDistance)
+local function populateTreePass(out, rects, pass, maxDistance)
   local step = TREE_STEP
   local phaseX = pass == 0 and 0 or step * 0.52
   local phaseY = pass == 0 and 0 or step * 0.46
-  local row, y = 0, out.bounds.y0 + phaseY
+  local row, y = 0, out.treeBounds.y0 + phaseY
 
-  while y < out.bounds.y1 do
+  while y < out.treeBounds.y1 do
     local stagger = (row % 2 == 0) and 0 or step * 0.48
-    local col, x = 0, out.bounds.x0 + phaseX
-    while x < out.bounds.x1 do
+    local col, x = 0, out.treeBounds.x0 + phaseX
+    while x < out.treeBounds.x1 do
       local cx = x + step * 0.5 + stagger
       local cy = y + step * 0.60
       addTree(out, rects, cx, cy, row, col, pass, maxDistance)
@@ -134,8 +139,50 @@ local function populatePass(out, rects, pass, maxDistance)
   end
 end
 
+-- Build horizontal spans rather than one quad per cell. Adjacent floor cells
+-- therefore read as a continuous forest bed and cost only a small number of
+-- draw calls. Center-point occupancy is sufficient here because Gen1Recomp
+-- map connections are cell-aligned in the world scene contract.
+local function buildFloorRuns(rects, bounds)
+  local floor = {}
+  local x0 = math.floor(bounds.x0 - FLOOR_DEPTH)
+  local y0 = math.floor(bounds.y0 - FLOOR_DEPTH)
+  local x1 = math.ceil(bounds.x1 + FLOOR_DEPTH)
+  local y1 = math.ceil(bounds.y1 + FLOOR_DEPTH)
+
+  for y = y0, y1 - 1 do
+    local runStart = nil
+    for x = x0, x1 do
+      local outside = x < x1 and not insideAny(rects, x + 0.5, y + 0.5)
+      if outside and runStart == nil then
+        runStart = x
+      elseif not outside and runStart ~= nil then
+        floor[#floor + 1] = {
+          kind = "forest_floor",
+          x0 = runStart,
+          y0 = y,
+          x1 = x,
+          y1 = y + 1,
+          z = FLOOR_Z,
+        }
+        runStart = nil
+      end
+    end
+  end
+
+  return floor, { x0 = x0, y0 = y0, x1 = x1, y1 = y1 }
+end
+
 function WorldEnvelope.build(state, scenes, depth)
-  local out = { kind = "none", trees = {}, depth = 0, bounds = nil }
+  local out = {
+    kind = "none",
+    trees = {},
+    floor = {},
+    depth = 0,
+    bounds = nil,
+    treeBounds = nil,
+    floorBounds = nil,
+  }
   if not forestMode(state) then return out end
 
   local rects, bounds = worldRects(scenes)
@@ -144,23 +191,27 @@ function WorldEnvelope.build(state, scenes, depth)
   depth = math.max(2, tonumber(depth) or DEFAULT_DEPTH)
   out.kind = "forest"
   out.depth = depth
-  out.bounds = {
+  out.bounds = bounds
+  out.treeBounds = {
     x0 = bounds.x0 - depth,
     y0 = bounds.y0 - depth,
     x1 = bounds.x1 + depth,
     y1 = bounds.y1 + depth,
   }
+  out.floor, out.floorBounds = buildFloorRuns(rects, bounds)
 
   -- Sparse full-depth forest, then a second half-step pass only near the
   -- authoritative map boundary. The latter closes visible gaps between
   -- billboard canopies without multiplying the whole envelope cost.
-  populatePass(out, rects, 0, depth + TREE_STEP * 0.8)
-  populatePass(out, rects, 1, math.min(depth, INNER_BELT_DEPTH))
+  populateTreePass(out, rects, 0, depth + TREE_STEP * 0.8)
+  populateTreePass(out, rects, 1, math.min(depth, INNER_BELT_DEPTH))
 
   return out
 end
 
 WorldEnvelope.DEFAULT_DEPTH = DEFAULT_DEPTH
+WorldEnvelope.FLOOR_DEPTH = FLOOR_DEPTH
+WorldEnvelope.FLOOR_Z = FLOOR_Z
 WorldEnvelope.TREE_STEP = TREE_STEP
 WorldEnvelope.INNER_BELT_DEPTH = INNER_BELT_DEPTH
 
