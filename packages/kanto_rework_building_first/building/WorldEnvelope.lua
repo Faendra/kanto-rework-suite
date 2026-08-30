@@ -2,21 +2,15 @@ local WorldEnvelope = {}
 
 -- WORLD-ENVELOPE-01
 --
--- The gameplay maps remain the only authoritative world rectangles. This
--- module creates VISUAL-ONLY objects outside those rectangles so the 3/4
--- camera never exposes a flat map sheet floating in sky. It deliberately
--- does not infer collisions, warps, walkability or new gameplay terrain.
---
--- For OVERWORLD scenes the first envelope type is a dense forest belt made
--- from authored tree instances. Connected maps supplied by Gen1Recomp are
--- part of the occupied world, so the belt automatically leaves their seams
--- open instead of painting trees over a real connection.
+-- Gameplay maps remain the only authoritative world rectangles. This module
+-- creates VISUAL-ONLY objects outside them so the 3/4 camera reads a larger
+-- environment instead of a rectangular map sheet. No collision, warp,
+-- walkability or gameplay terrain is created here.
 
-local DEFAULT_DEPTH = 6
-local TREE_STEP = 1.80
-local TREE_WIDTH = 1.68
-local TREE_HEIGHT = 2.45
-local MIN_DISTANCE = 0.42
+local DEFAULT_DEPTH = 7
+local TREE_STEP = 1.38
+local TREE_WIDTH = 1.78
+local MIN_DISTANCE = 0.30
 
 local function rectFor(scene)
   local map = scene and scene.map
@@ -84,10 +78,15 @@ local function distanceToWorld(rects, x, y)
   return best or math.huge
 end
 
+local function hash(ix, iy)
+  return math.abs(ix * 73856093 + iy * 19349663) % 104729
+end
+
 local function deterministicJitter(ix, iy)
-  local a = ((ix * 37 + iy * 17) % 7) - 3
-  local b = ((ix * 13 + iy * 29) % 5) - 2
-  return a * 0.040, b * 0.050
+  local h = hash(ix, iy)
+  local a = (h % 17) - 8
+  local b = (math.floor(h / 17) % 13) - 6
+  return a * 0.018, b * 0.018, h
 end
 
 function WorldEnvelope.build(state, scenes, depth)
@@ -113,18 +112,18 @@ function WorldEnvelope.build(state, scenes, depth)
     local col, x = 0, out.bounds.x0
     while x < out.bounds.x1 do
       local cx = x + TREE_STEP * 0.5 + stagger
-      local cy = y + TREE_STEP * 0.58
+      local cy = y + TREE_STEP * 0.60
       if not insideAny(rects, cx, cy) then
         local d = distanceToWorld(rects, cx, cy)
-        if d >= MIN_DISTANCE and d <= depth + TREE_STEP * 0.6 then
-          local jx, jy = deterministicJitter(col + row * 97, row)
+        if d >= MIN_DISTANCE and d <= depth + TREE_STEP * 0.8 then
+          local jx, jy, h = deterministicJitter(col + row * 97, row)
+          local size = 0.93 + (h % 7) * 0.022
           out.trees[#out.trees + 1] = {
             kind = "tree",
             x = cx + jx,
             y = cy + jy,
             z = 0,
-            width = TREE_WIDTH,
-            height = TREE_HEIGHT,
+            width = TREE_WIDTH * size,
             row = row,
           }
         end
