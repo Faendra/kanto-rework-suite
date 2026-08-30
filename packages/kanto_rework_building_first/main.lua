@@ -32,16 +32,18 @@ local PalletRedHouse = loadLocal("building.PalletRedHouse", "building/PalletRedH
 local PalletRivalHouse = loadLocal("building.PalletRivalHouse", "building/PalletRivalHouse.lua")
 local PalletOakLab = loadLocal("building.PalletOakLab", "building/PalletOakLab.lua")
 local SemanticSceneBuilder = loadLocal("building.SemanticSceneBuilder", "building/SemanticSceneBuilder.lua")
+local WorldScene = loadLocal("building.WorldScene", "building/WorldScene.lua")
 local SceneProjection = loadLocal("building.SceneProjection", "building/SceneProjection.lua")
 local AtlasSource = loadLocal("building.AtlasSource", "building/AtlasSource.lua")
 local BuildingRenderer = loadLocal("building.BuildingRenderer", "building/BuildingRenderer.lua")
 
 local buildingProfiles = { PalletRedHouse, PalletRivalHouse, PalletOakLab }
 local sceneBuilder = SemanticSceneBuilder.new(buildingProfiles)
-local renderer = BuildingRenderer.new(SceneProjection, AtlasSource, sceneBuilder)
+local renderer = BuildingRenderer.new(SceneProjection, AtlasSource, sceneBuilder, WorldScene)
 
 mod.exports.renderer = renderer
 mod.exports.sceneBuilder = sceneBuilder
+mod.exports.worldScene = WorldScene
 mod.exports.buildingProfiles = buildingProfiles
 mod.exports.redHouseProfile = PalletRedHouse
 mod.exports.rivalHouseProfile = PalletRivalHouse
