@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_building_first",
   "name": "Kanto Rework — Building First HD-2D",
-  "version": "0.4.0-pallet-world01",
+  "version": "0.5.0-architecture-volume01",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "Pallet World-01 HD-2D renderer: three semantic Pallet buildings, connected Gen1Recomp neighbor maps, a visual-only forest envelope, and batched tessellated ground surfaces. Runtime Gen1 pixels remain material input and gameplay stays authoritative."
+  "description": "Architecture Volume-01: Pallet World-01 plus full-depth semantic Red/Rival houses and Oak Lab. Source projection masking, authored building volume and visual occlusion are separate profile concepts; Gen1Recomp gameplay remains authoritative."
 }
