@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_building_first",
   "name": "Kanto Rework — Building First HD-2D",
-  "version": "0.3.0-building03",
+  "version": "0.4.0-pallet-world01",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "Building-first HD-2D renderer. BUILDING-03 recognizes Red's house, the rival's house, and Oak's Lab semantically in Pallet Town. Gable and hip roofs share one generic renderer; Gen1Recomp runtime pixels remain material input only and gameplay stays authoritative."
+  "description": "Pallet World-01 HD-2D renderer: three semantic Pallet buildings, connected Gen1Recomp neighbor maps, a visual-only forest envelope, and batched tessellated ground surfaces. Runtime Gen1 pixels remain material input and gameplay stays authoritative."
 }
