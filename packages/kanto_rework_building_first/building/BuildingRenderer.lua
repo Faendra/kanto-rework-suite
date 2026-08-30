@@ -29,6 +29,15 @@ local function rgba(c, alpha)
   love.graphics.setColor(c[1], c[2], c[3], alpha or c[4] or 1)
 end
 
+local function graphicsDimensions()
+  if not (love and love.graphics and type(love.graphics.getDimensions) == "function") then
+    return nil, nil
+  end
+  local ok, w, h = pcall(love.graphics.getDimensions)
+  if not ok then return nil, nil end
+  return w, h
+end
+
 local function actorPose(actor)
   if not actor or type(actor.pose) ~= "function" then return nil end
   local ok, sprite, px, py, facing, phase, flip, hopping = pcall(actor.pose, actor)
@@ -72,6 +81,17 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder)
     prepared = nil,
     atlasCellCache = {},
     atlasRegionCache = {},
+    resourceIdentityReady = false,
+    resourceMap = nil,
+    resourceMapId = nil,
+    resourceRenderer = nil,
+    resourceImage = nil,
+    resourceQuads = nil,
+    resourceCtxW = nil,
+    resourceCtxH = nil,
+    resourceGraphicsW = nil,
+    resourceGraphicsH = nil,
+    resourceResets = 0,
     lastMaterialBuilds = 0,
     lastGroundCells = 0,
     lastActors = 0,
@@ -88,6 +108,54 @@ end
 
 function BuildingRenderer:update(_, level)
   self.level = tonumber(level) or 0
+end
+
+-- Atlas-derived materials are GPU canvases owned by this renderer. A new
+-- game/save session can replace map.renderer (or the runtime atlas) while the
+-- render-pipeline Lua object survives. Likewise a desktop video-mode switch
+-- can replace the graphics backing store. In either case retaining prepared
+-- material canvases produces a scene where CPU-drawn shadows/sprites survive
+-- but every mesh-textured surface disappears. Treat those boundaries as a new
+-- resource generation and rebuild once, before the next frame is prepared.
+function BuildingRenderer:dropTransientResources()
+  release(self.mesh)
+  release(self.output)
+  self.mesh, self.output = nil, nil
+  self.outputW, self.outputH = 0, 0
+  self.preparedKey, self.prepared = nil, nil
+  self.AtlasSource.invalidate(self)
+end
+
+function BuildingRenderer:syncResourceIdentity(ctx, map)
+  local r = map and map.renderer
+  local ctxW = math.max(1, math.floor(tonumber(ctx and ctx.width) or 1))
+  local ctxH = math.max(1, math.floor(tonumber(ctx and ctx.height) or 1))
+  local graphicsW, graphicsH = graphicsDimensions()
+
+  local changed = self.resourceIdentityReady and (
+       self.resourceMap ~= map
+    or self.resourceMapId ~= (map and map.id)
+    or self.resourceRenderer ~= r
+    or self.resourceImage ~= (r and r.image)
+    or self.resourceQuads ~= (r and r.quads)
+    or self.resourceCtxW ~= ctxW
+    or self.resourceCtxH ~= ctxH
+    or self.resourceGraphicsW ~= graphicsW
+    or self.resourceGraphicsH ~= graphicsH)
+
+  if changed then
+    self:dropTransientResources()
+    self.resourceResets = self.resourceResets + 1
+  end
+
+  self.resourceIdentityReady = true
+  self.resourceMap = map
+  self.resourceMapId = map and map.id or nil
+  self.resourceRenderer = r
+  self.resourceImage = r and r.image or nil
+  self.resourceQuads = r and r.quads or nil
+  self.resourceCtxW, self.resourceCtxH = ctxW, ctxH
+  self.resourceGraphicsW, self.resourceGraphicsH = graphicsW, graphicsH
 end
 
 function BuildingRenderer:ensureResources(ctx)
@@ -357,6 +425,7 @@ function BuildingRenderer:drawWorld(ctx)
   if not (ctx and ctx.state and ctx.state.map and ctx.width and ctx.height) then return nil end
   if not self:available() or not self.AtlasSource.available(ctx.state.map) then return nil end
 
+  self:syncResourceIdentity(ctx, ctx.state.map)
   self:ensureResources(ctx)
   self.lastGroundCells, self.lastActors, self.lastBuildings, self.lastDrawCalls = 0, 0, 0, 0
   local prepared = self:prepareScene(ctx.state.map)
@@ -381,6 +450,7 @@ function BuildingRenderer:metrics()
   return {
     semanticBuilds = self.SceneBuilder.buildCount,
     materialBuilds = self.lastMaterialBuilds,
+    resourceResets = self.resourceResets,
     groundCells = self.lastGroundCells,
     buildings = self.lastBuildings,
     actors = self.lastActors,
@@ -389,12 +459,15 @@ function BuildingRenderer:metrics()
 end
 
 function BuildingRenderer:invalidate()
-  release(self.mesh)
-  release(self.output)
-  self.mesh, self.output = nil, nil
-  self.outputW, self.outputH = 0, 0
-  self.preparedKey, self.prepared = nil, nil
-  self.AtlasSource.invalidate(self)
+  self:dropTransientResources()
+  self.resourceIdentityReady = false
+  self.resourceMap = nil
+  self.resourceMapId = nil
+  self.resourceRenderer = nil
+  self.resourceImage = nil
+  self.resourceQuads = nil
+  self.resourceCtxW, self.resourceCtxH = nil, nil
+  self.resourceGraphicsW, self.resourceGraphicsH = nil, nil
   self.SceneBuilder:invalidate()
 end
 
