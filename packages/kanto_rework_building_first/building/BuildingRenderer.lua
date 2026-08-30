@@ -119,11 +119,6 @@ function BuildingRenderer:update(_, level)
   self.level = tonumber(level) or 0
 end
 
--- Atlas-derived materials are GPU canvases owned by this renderer. A new
--- game/save session can replace map.renderer (or the runtime atlas) while the
--- render-pipeline Lua object survives. Connected neighbor maps are part of
--- that generation too: changing a neighbor set must not leave stale atlas
--- canvases at world seams.
 function BuildingRenderer:dropTransientResources()
   release(self.mesh)
   release(self.output)
@@ -223,22 +218,12 @@ function BuildingRenderer:drawFace(proj, texture, points, color, uv)
   return true
 end
 
--- Build one connected render scene from the primary map plus the exact maps
--- Gen1Recomp already exposes in state.neighbors. No geometry is inferred at
--- seams: each neighbor keeps its own vanilla cells and receives only its
--- engine-provided world offset. The exterior is now an object envelope, not
--- a projected texture plane.
 function BuildingRenderer:prepareScene(state)
   local worldKey = self.WorldScene.identity(state)
   if self.prepared and self.preparedKey == worldKey then return self.prepared end
 
   local worldScenes = self.WorldScene.collect(state)
-  local prepared = {
-    worldKey = worldKey,
-    worldScenes = worldScenes,
-    ground = {},
-    buildings = {},
-  }
+  local prepared = { worldKey = worldKey, worldScenes = worldScenes, ground = {}, buildings = {} }
 
   for _, world in ipairs(worldScenes) do
     local scene = self.SceneBuilder:build(world.map)
@@ -246,9 +231,7 @@ function BuildingRenderer:prepareScene(state)
       for i = 1, #scene.ground do
         local cell = scene.ground[i]
         prepared.ground[#prepared.ground + 1] = {
-          x = cell.x + world.cx,
-          y = cell.y + world.cy,
-          z = cell.z,
+          x = cell.x + world.cx, y = cell.y + world.cy, z = cell.z,
           texture = self.AtlasSource.cellTexture(self, world.map, cell.x, cell.y),
         }
       end
@@ -256,9 +239,7 @@ function BuildingRenderer:prepareScene(state)
         local b = scene.buildings[i]
         local m = b.materials
         prepared.buildings[#prepared.buildings + 1] = {
-          semantic = b,
-          ox = world.cx,
-          oy = world.cy,
+          semantic = b, ox = world.cx, oy = world.cy,
           roof = regionTexture(self.AtlasSource, self, world.map, m.roof),
           roofLeft = regionTexture(self.AtlasSource, self, world.map, m.roofLeft),
           roofRight = regionTexture(self.AtlasSource, self, world.map, m.roofRight),
@@ -309,21 +290,17 @@ end
 function BuildingRenderer:drawGableRoof(proj, pb, xL, xR, yB, yF, wallH, peak, ridge, thick, a)
   local roofUV = a.roofUV or DEFAULT_ROOF_UV
   local fasciaUV = a.fasciaUV or DEFAULT_FASCIA_UV
-
   self:drawFace(proj, pb.roof, {
     { xL, yB, wallH }, { xR, yB, wallH }, { xR, ridge, peak }, { xL, ridge, peak },
   }, COLORS.roofFar, roofUV)
   self:drawFace(proj, pb.roof, {
     { xL, ridge, peak }, { xR, ridge, peak }, { xR, yF, wallH }, { xL, yF, wallH },
   }, COLORS.pixel, roofUV)
-
   self:drawFace(proj, pb.roof, {
-    { xL, yF, wallH - thick }, { xR, yF, wallH - thick },
-    { xR, yF, wallH }, { xL, yF, wallH },
+    { xL, yF, wallH - thick }, { xR, yF, wallH - thick }, { xR, yF, wallH }, { xL, yF, wallH },
   }, COLORS.fascia, fasciaUV)
   self:drawFace(proj, pb.roof, {
-    { xR, yB, wallH - thick }, { xR, yF, wallH - thick },
-    { xR, yF, wallH }, { xR, yB, wallH },
+    { xR, yB, wallH - thick }, { xR, yF, wallH - thick }, { xR, yF, wallH }, { xR, yB, wallH },
   }, COLORS.fascia, { 0, 0, 1, 0, 1, 0.15, 0, 0.15 })
 end
 
@@ -333,32 +310,23 @@ function BuildingRenderer:drawHipRoof(proj, pb, xL, xR, yB, yF, wallH, peak, rid
   local roofUV = a.roofUV or DEFAULT_ROOF_UV
   local fasciaUV = a.fasciaUV or DEFAULT_FASCIA_UV
   local sideUV = a.roofSideUV or DEFAULT_ROOF_UV
-
   self:drawFace(proj, pb.roof, {
-    { xL, yB, wallH }, { xR, yB, wallH },
-    { ridgeR, ridge, peak }, { ridgeL, ridge, peak },
+    { xL, yB, wallH }, { xR, yB, wallH }, { ridgeR, ridge, peak }, { ridgeL, ridge, peak },
   }, COLORS.roofFar, roofUV)
   self:drawFace(proj, pb.roof, {
-    { ridgeL, ridge, peak }, { ridgeR, ridge, peak },
-    { xR, yF, wallH }, { xL, yF, wallH },
+    { ridgeL, ridge, peak }, { ridgeR, ridge, peak }, { xR, yF, wallH }, { xL, yF, wallH },
   }, COLORS.pixel, roofUV)
-
   self:drawFace(proj, pb.roofLeft or pb.roof, {
-    { xL, yB, wallH }, { ridgeL, ridge, peak },
-    { xL, yF, wallH }, { xL, yF, wallH },
+    { xL, yB, wallH }, { ridgeL, ridge, peak }, { xL, yF, wallH }, { xL, yF, wallH },
   }, COLORS.roofSide, sideUV)
   self:drawFace(proj, pb.roofRight or pb.roof, {
-    { xR, yF, wallH }, { ridgeR, ridge, peak },
-    { xR, yB, wallH }, { xR, yB, wallH },
+    { xR, yF, wallH }, { ridgeR, ridge, peak }, { xR, yB, wallH }, { xR, yB, wallH },
   }, COLORS.pixel, sideUV)
-
   self:drawFace(proj, pb.roof, {
-    { xL, yF, wallH - thick }, { xR, yF, wallH - thick },
-    { xR, yF, wallH }, { xL, yF, wallH },
+    { xL, yF, wallH - thick }, { xR, yF, wallH - thick }, { xR, yF, wallH }, { xL, yF, wallH },
   }, COLORS.fascia, fasciaUV)
   self:drawFace(proj, pb.roofRight or pb.roof, {
-    { xR, yB, wallH - thick }, { xR, yF, wallH - thick },
-    { xR, yF, wallH }, { xR, yB, wallH },
+    { xR, yB, wallH - thick }, { xR, yF, wallH - thick }, { xR, yF, wallH }, { xR, yB, wallH },
   }, COLORS.fascia, { 0, 0, 1, 0, 1, 0.20, 0, 0.20 })
 end
 
@@ -375,7 +343,6 @@ function BuildingRenderer:drawBuilding(proj, pb)
   self:drawFace(proj, pb.side, {
     { x1, y0, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x1, y0, wallH },
   }, COLORS.side)
-
   self:drawFace(proj, pb.facade, {
     { x0, y1, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x0, y1, wallH },
   }, COLORS.pixel, VERTICAL_UV)
@@ -393,13 +360,14 @@ function BuildingRenderer:drawBuilding(proj, pb)
     { dx0, y1 + 0.006, 0 }, { dx1, y1 + 0.006, 0 },
     { dx1, y1 + 0.006, a.doorHeight }, { dx0, y1 + 0.006, a.doorHeight },
   }, COLORS.pixel, VERTICAL_UV)
-
   self.lastBuildings = self.lastBuildings + 1
 end
 
 -- Tree canopies follow the same HD-2D rule as actors: a semantic world
--- position plus a screen-upright sprite, scaled by local perspective. The
--- source pixels define appearance only; they never define world geometry.
+-- position plus a screen-upright sprite, scaled by local perspective. Trees
+-- substantially closer than the camera target are culled: the perspective
+-- camera itself can sit outside the gameplay rectangle, and the visual-only
+-- envelope must never become foreground geometry between camera and world.
 function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   if not (texture and tree) then return false end
   local x, y, z = tree.x, tree.y, tree.z or 0
@@ -413,6 +381,7 @@ function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   local basisY = math.sqrt((cx - sx) * (cx - sx) + (cy - sy) * (cy - sy))
   local localCellPx = (basisX + basisY) * 0.5
   if not finite(localCellPx) or localCellPx <= 0 then return false end
+  if finite(proj.tileW) and localCellPx > proj.tileW * 1.30 then return false end
 
   local tw, th = CELL, CELL
   if type(texture.getDimensions) == "function" then
@@ -422,8 +391,9 @@ function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   local scale = localCellPx * (tree.width or 1.68) / tw
   local drawW, drawH = tw * scale, th * scale
   local margin = math.max(drawW, drawH) * 1.25
-  if sx < -margin or sx > self.outputW + margin
-     or sy < -margin or sy > self.outputH + margin then return false end
+  if sx < -margin or sx > self.outputW + margin or sy < -margin or sy > self.outputH + margin then
+    return false
+  end
 
   if self.treeKeyShader and type(love.graphics.setShader) == "function" then
     love.graphics.setShader(self.treeKeyShader)
@@ -459,8 +429,7 @@ end
 
 function BuildingRenderer:drawActor(proj, row)
   local sprite = row.sprite
-  if not (sprite and type(sprite.getPoseGeometry) == "function"
-          and type(sprite.resolveImage) == "function") then return false end
+  if not (sprite and type(sprite.getPoseGeometry) == "function" and type(sprite.resolveImage) == "function") then return false end
   local okG, g = pcall(sprite.getPoseGeometry, sprite, row.facing, row.phase, row.flip)
   local okI, image = pcall(sprite.resolveImage, sprite)
   if not okG or not okI or not g or not g.quad or not image then return false end
@@ -486,16 +455,12 @@ end
 
 function BuildingRenderer:drawObjects(ctx, proj, prepared)
   local commands = {}
-
   local envelope = prepared.envelope
   if envelope and envelope.kind == "forest" and prepared.envelopeTexture then
     self.lastEnvelopeActive = true
     for i = 1, #envelope.trees do
       local tree = envelope.trees[i]
-      commands[#commands + 1] = {
-        kind = "tree", value = tree,
-        depth = proj:depth(tree.x, tree.y + 0.04, 0.05),
-      }
+      commands[#commands + 1] = { kind = "tree", value = tree, depth = proj:depth(tree.x, tree.y + 0.04, 0.05) }
     end
   end
 
@@ -511,9 +476,7 @@ function BuildingRenderer:drawObjects(ctx, proj, prepared)
   end
 
   local actors = self:collectActors(ctx.state, proj)
-  for i = 1, #actors do
-    commands[#commands + 1] = { kind = "actor", value = actors[i], depth = actors[i].depth }
-  end
+  for i = 1, #actors do commands[#commands + 1] = { kind = "actor", value = actors[i], depth = actors[i].depth } end
 
   local rank = { tree = 1, building = 2, actor = 3 }
   table.sort(commands, function(a, b)
@@ -523,13 +486,9 @@ function BuildingRenderer:drawObjects(ctx, proj, prepared)
 
   for i = 1, #commands do
     local c = commands[i]
-    if c.kind == "building" then
-      self:drawBuilding(proj, c.value)
-    elseif c.kind == "tree" then
-      self:drawTreeCluster(proj, prepared.envelopeTexture, c.value)
-    else
-      self:drawActor(proj, c.value)
-    end
+    if c.kind == "building" then self:drawBuilding(proj, c.value)
+    elseif c.kind == "tree" then self:drawTreeCluster(proj, prepared.envelopeTexture, c.value)
+    else self:drawActor(proj, c.value) end
   end
 end
 
