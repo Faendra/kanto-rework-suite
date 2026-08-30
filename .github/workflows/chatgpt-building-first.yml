@@ -102,3 +102,28 @@ jobs:
             building-first-raw-connected.png
           if-no-files-found: warn
           retention-days: 7
+
+  package-test-build:
+    name: Package installable test build
+    runs-on: ubuntu-latest
+    needs: [lua51-contract, gen1recomp-loader, love-raw]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build exact installable archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp -a packages/kanto_rework_building_first dist/kanto_rework_building_first
+          cd dist
+          zip -qr "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.zip" kanto_rework_building_first
+          sha256sum "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.zip" > "kanto_rework_building_first-BUILDING03-WORLD01-${GITHUB_SHA:0:8}.sha256"
+      - name: Upload installable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: building-first-installable
+          path: |
+            dist/kanto_rework_building_first-BUILDING03-WORLD01-*.zip
+            dist/kanto_rework_building_first-BUILDING03-WORLD01-*.sha256
+          if-no-files-found: error
+          retention-days: 7
