@@ -27,6 +27,7 @@ local RELATIVE_FILES = {
   "building/PalletRivalHouse.lua",
   "building/PalletOakLab.lua",
   "building/SemanticSceneBuilder.lua",
+  "building/WorldScene.lua",
   "building/SceneProjection.lua",
   "building/AtlasSource.lua",
   "building/BuildingRenderer.lua",
@@ -85,7 +86,7 @@ assert(#loader.errors == 0, "BUILDING-03 loader errors: " .. table.concat(loader
 
 local exports = assert(loader.exports.kanto_rework_building_first, "BUILDING-03 exports missing")
 for _, name in ipairs({
-  "renderer", "sceneBuilder", "buildingProfiles", "redHouseProfile",
+  "renderer", "sceneBuilder", "worldScene", "buildingProfiles", "redHouseProfile",
   "rivalHouseProfile", "oakLabProfile", "projection", "atlasSource",
 }) do
   assert(type(exports[name]) == "table", name .. " export missing")
@@ -98,11 +99,11 @@ Pipelines.setLevel("krs_building_first", 1)
 Pipelines.update(0)
 assert(Pipelines.worldPipeline() == "krs_building_first", "BUILDING-03 pipeline unavailable")
 
-local flatCalls = 0
+local flatCalls, fillCalls = 0, 0
 local rendererStub = {
   draw = function() flatCalls = flatCalls + 1 end,
   drawMapOnly = function() flatCalls = flatCalls + 1 end,
-  drawBorderFill = function() flatCalls = flatCalls + 1 end,
+  drawBorderFill = function() fillCalls = fillCalls + 1 end,
 }
 rendererStub.image = love.graphics.newCanvas(128, 48)
 rendererStub.quads = {}
@@ -200,9 +201,12 @@ assert(m1.semanticBuilds == 1, "semantic scene was not prepared exactly once")
 assert(m1.groundCells == 304, "three semantic footprints were not removed from flat Pallet ground")
 assert(m1.buildings == 3, "Pallet semantic buildings missing")
 assert(m1.actors == 1, "Red actor billboard missing")
+assert(m1.worldScenes == 1, "primary map must form one world scene without neighbors")
+assert(m1.fillActive == true, "engine border filling was not projected into the world")
 assert(m1.materialBuilds > 0, "runtime atlas materials were not cached")
 assert(m1.resourceResets == 0, "first draw must establish resource identity without a reset")
 assert(flatCalls == 0, "building-first path invoked flattened map drawing")
+assert(fillCalls == 1, "border filling should be cached once for the stable world")
 
 local materialBuilds = m1.materialBuilds
 local rendered2 = Pipelines.drawWorld("krs_building_first", ctx)
@@ -211,6 +215,7 @@ local m2 = exports.metrics()
 assert(m2.semanticBuilds == 1, "semantic scene rebuilt during stable draw")
 assert(m2.materialBuilds == materialBuilds, "atlas materials rebuilt during stable draw")
 assert(m2.resourceResets == 0, "stable draw reset GPU resource generation")
+assert(fillCalls == 1, "stable draw rebuilt world filling")
 assert(map.id == before.mapId and actor.px == before.px and actor.py == before.py,
        "renderer mutated gameplay identity or actor coordinates")
 assert(map:warpAtCell(5, 5).def.destMap == before.redWarp, "renderer mutated Red house warp")
@@ -264,5 +269,34 @@ local mResize2 = exports.metrics()
 assert(mResize2.resourceResets == 3, "stable post-resize frame reset resources again")
 assert(mResize2.materialBuilds == resizeBuilds, "stable post-resize frame rebuilt materials")
 
-print(("PASS building_first_loader_v0232 buildings=%d ground=%d materials=%d resets=%d")
-  :format(mResize2.buildings, mResize2.groundCells, mResize2.materialBuilds, mResize2.resourceResets))
+-- Regression: connected maps supplied by Gen1Recomp must participate in one
+-- spatial world instead of being clipped at the primary map rectangle.
+local route1 = {
+  id = "ROUTE_1",
+  def = { tileset = "OVERWORLD" },
+  widthCells = 20,
+  heightCells = 36,
+  renderer = rendererStub,
+  warpAtCell = function() return nil end,
+  tileAt = function() return 0x2C end,
+}
+state.neighbors = { { map = route1, ox = 0, oy = -36 * 16 } }
+local renderedConnected = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedConnected ~= nil, "connected-world draw failed")
+local mConnected = exports.metrics()
+assert(mConnected.resourceResets == 4, "neighbor-set replacement did not begin a new resource generation")
+assert(mConnected.worldScenes == 2, "connected Route 1 was not added to the world scene")
+assert(mConnected.groundCells == 304 + 20 * 36, "neighbor ground was clipped from connected world")
+assert(mConnected.fillActive == true, "connected world lost engine border filling")
+assert(flatCalls == 0, "connected-world renderer fell back to flattened map drawing")
+
+local connectedBuilds = mConnected.materialBuilds
+local renderedConnected2 = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedConnected2 ~= nil, "stable connected-world draw failed")
+local mConnected2 = exports.metrics()
+assert(mConnected2.resourceResets == 4, "stable connected world reset resources again")
+assert(mConnected2.materialBuilds == connectedBuilds, "stable connected world rebuilt materials")
+
+print(("PASS building_first_loader_v0232 buildings=%d ground=%d materials=%d resets=%d scenes=%d fill=%s")
+  :format(mConnected2.buildings, mConnected2.groundCells, mConnected2.materialBuilds,
+          mConnected2.resourceResets, mConnected2.worldScenes, tostring(mConnected2.fillActive)))
