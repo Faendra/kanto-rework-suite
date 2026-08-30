@@ -17,6 +17,9 @@ function PalletRivalHouse.detect(map)
     return nil
   end
 
+  local volume = { x0 = 12, y0 = 2, x1 = 16, y1 = 6 }
+  local occlusion = { x0 = 11.82, y0 = 1.82, x1 = 16.18, y1 = 6.18 }
+
   return {
     kind = "building",
     semantic = "HOUSE",
@@ -24,15 +27,20 @@ function PalletRivalHouse.detect(map)
     id = "PALLET_RIVAL_HOUSE",
     mapId = "PALLET_TOWN",
     groundClaim = { x0 = 12, y0 = 2, x1 = 16, y1 = 6 },
-    footprint = { x0 = 12, y0 = 5, x1 = 16, y1 = 6 },
+    footprint = volume,
+    gameplayFootprint = { x0 = 12, y0 = 2, x1 = 16, y1 = 6 },
     door = { x = 13, y = 5, width = 1 },
+
     architecture = {
+      footprint = volume,
+      width = 4.0,
+      depth = 4.0,
       wallHeight = 1.36,
       roofStyle = "hip",
       roofPeak = 2.34,
       roofThickness = 0.14,
       roofOverhang = 0.18,
-      ridgeY = 5.5,
+      ridgeY = 4.0,
       ridgeInsetX = 1.0,
       doorHeight = 0.92,
       shadowInset = 0.04,
@@ -40,6 +48,13 @@ function PalletRivalHouse.detect(map)
       fasciaUV = { 0, 0.75, 1, 0.75, 1, 1, 0, 1 },
       roofSideUV = { 0, 0, 1, 0, 1, 1, 0, 1 },
     },
+
+    occlusion = {
+      footprint = occlusion,
+      frontY = 6.18,
+      rearY = 1.82,
+    },
+
     materials = {
       roof = { x0 = 13, y0 = 3, x1 = 14, y1 = 3 },
       roofLeft = { x0 = 12, y0 = 3, x1 = 12, y1 = 3 },
