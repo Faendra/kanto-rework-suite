@@ -16,6 +16,7 @@ local COLORS = {
 
 local DEFAULT_ROOF_UV = { 0, 0, 1, 0, 1, 1, 0, 1 }
 local DEFAULT_FASCIA_UV = { 0, 0.75, 1, 0.75, 1, 1, 0, 1 }
+local VERTICAL_UV = { 0, 1, 1, 1, 1, 0, 0, 0 }
 
 local function release(obj)
   if obj and obj.release then pcall(obj.release, obj) end
@@ -67,22 +68,24 @@ local function regionTexture(source, host, map, region)
   return source.regionTexture(host, map, region.x0, region.y0, region.x1, region.y1)
 end
 
-function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene)
+function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene, WorldEnvelope)
   return setmetatable({
     Projection = assert(Projection),
     AtlasSource = assert(AtlasSource),
     SceneBuilder = assert(SceneBuilder),
     WorldScene = assert(WorldScene),
+    WorldEnvelope = assert(WorldEnvelope),
     level = 0,
     mesh = nil,
     output = nil,
+    treeKeyShader = nil,
     outputW = 0,
     outputH = 0,
     preparedKey = nil,
     prepared = nil,
     atlasCellCache = {},
     atlasRegionCache = {},
-    atlasFillCache = {},
+    atlasBlockCache = {},
     resourceIdentityReady = false,
     resourceMap = nil,
     resourceMapId = nil,
@@ -100,7 +103,8 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene)
     lastActors = 0,
     lastBuildings = 0,
     lastWorldScenes = 0,
-    lastFillActive = false,
+    lastEnvelopeTrees = 0,
+    lastEnvelopeActive = false,
     lastDrawCalls = 0,
   }, BuildingRenderer)
 end
@@ -123,7 +127,8 @@ end
 function BuildingRenderer:dropTransientResources()
   release(self.mesh)
   release(self.output)
-  self.mesh, self.output = nil, nil
+  release(self.treeKeyShader)
+  self.mesh, self.output, self.treeKeyShader = nil, nil, nil
   self.outputW, self.outputH = 0, 0
   self.preparedKey, self.prepared = nil, nil
   self.AtlasSource.invalidate(self)
@@ -182,6 +187,16 @@ function BuildingRenderer:ensureResources(ctx)
       { 0, 1, 0, 1, 1, 1, 1, 1 },
     }, "fan", "dynamic")
   end
+  if not self.treeKeyShader and type(love.graphics.newShader) == "function" then
+    local ok, shader = pcall(love.graphics.newShader, [[
+      vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+        vec4 p = Texel(tex, tc) * color;
+        if (p.r > 0.83 && p.g > 0.83 && p.b > 0.83) p.a = 0.0;
+        return p;
+      }
+    ]])
+    if ok then self.treeKeyShader = shader end
+  end
 end
 
 function BuildingRenderer:drawFace(proj, texture, points, color, uv)
@@ -211,7 +226,8 @@ end
 -- Build one connected render scene from the primary map plus the exact maps
 -- Gen1Recomp already exposes in state.neighbors. No geometry is inferred at
 -- seams: each neighbor keeps its own vanilla cells and receives only its
--- engine-provided world offset.
+-- engine-provided world offset. The exterior is now an object envelope, not
+-- a projected texture plane.
 function BuildingRenderer:prepareScene(state)
   local worldKey = self.WorldScene.identity(state)
   if self.prepared and self.preparedKey == worldKey then return self.prepared end
@@ -254,23 +270,13 @@ function BuildingRenderer:prepareScene(state)
     end
   end
 
-  prepared.fillBounds = self.WorldScene.bounds(worldScenes)
-  prepared.fillTexture = self.AtlasSource.worldFillTexture(
-    self, state and state.map, worldScenes, prepared.fillBounds)
+  prepared.envelope = self.WorldEnvelope.build(state, worldScenes)
+  if prepared.envelope and prepared.envelope.kind == "forest" then
+    prepared.envelopeTexture = self.AtlasSource.treeWallTexture(self, state and state.map)
+  end
 
   self.preparedKey, self.prepared = worldKey, prepared
   return prepared
-end
-
-function BuildingRenderer:drawFiller(proj, prepared)
-  local b = prepared and prepared.fillBounds
-  local texture = prepared and prepared.fillTexture
-  if not (b and texture) then return end
-  self:drawFace(proj, texture, {
-    { b.x0, b.y0, 0 }, { b.x1, b.y0, 0 },
-    { b.x1, b.y1, 0 }, { b.x0, b.y1, 0 },
-  }, COLORS.pixel)
-  self.lastFillActive = true
 end
 
 function BuildingRenderer:drawGround(proj, prepared)
@@ -372,7 +378,7 @@ function BuildingRenderer:drawBuilding(proj, pb)
 
   self:drawFace(proj, pb.facade, {
     { x0, y1, 0 }, { x1, y1, 0 }, { x1, y1, wallH }, { x0, y1, wallH },
-  }, COLORS.pixel, { 0, 1, 1, 1, 1, 0, 0, 0 })
+  }, COLORS.pixel, VERTICAL_UV)
 
   local roofStyle = a.roofStyle or "gable"
   if roofStyle == "hip" then
@@ -386,9 +392,38 @@ function BuildingRenderer:drawBuilding(proj, pb)
   self:drawFace(proj, pb.door, {
     { dx0, y1 + 0.006, 0 }, { dx1, y1 + 0.006, 0 },
     { dx1, y1 + 0.006, a.doorHeight }, { dx0, y1 + 0.006, a.doorHeight },
-  }, COLORS.pixel, { 0, 1, 1, 1, 1, 0, 0, 0 })
+  }, COLORS.pixel, VERTICAL_UV)
 
   self.lastBuildings = self.lastBuildings + 1
+end
+
+-- Dense crossed foliage cards are the first semantic envelope primitive.
+-- The vanilla tree-wall pixels provide material identity, while size,
+-- placement and depth are authored by WorldEnvelope. This is intentionally
+-- the same hybrid principle used for actor billboards: 2D art living in a
+-- real 3D scene, not pixel-driven voxel geometry.
+function BuildingRenderer:drawTreeCluster(proj, texture, tree)
+  if not (texture and tree) then return false end
+  local x, y = tree.x, tree.y
+  local z = tree.z or 0
+  local half = (tree.width or 1.85) * 0.5
+  local h = tree.height or 3.15
+
+  if self.treeKeyShader and type(love.graphics.setShader) == "function" then
+    love.graphics.setShader(self.treeKeyShader)
+  end
+  self:drawFace(proj, texture, {
+    { x - half, y, z }, { x + half, y, z },
+    { x + half, y, z + h }, { x - half, y, z + h },
+  }, COLORS.pixel, VERTICAL_UV)
+  self:drawFace(proj, texture, {
+    { x, y - half * 0.70, z }, { x, y + half * 0.70, z },
+    { x, y + half * 0.70, z + h }, { x, y - half * 0.70, z + h },
+  }, COLORS.pixel, VERTICAL_UV)
+  if type(love.graphics.setShader) == "function" then love.graphics.setShader() end
+
+  self.lastEnvelopeTrees = self.lastEnvelopeTrees + 1
+  return true
 end
 
 function BuildingRenderer:collectActors(state, proj)
@@ -440,6 +475,19 @@ end
 
 function BuildingRenderer:drawObjects(ctx, proj, prepared)
   local commands = {}
+
+  local envelope = prepared.envelope
+  if envelope and envelope.kind == "forest" and prepared.envelopeTexture then
+    self.lastEnvelopeActive = true
+    for i = 1, #envelope.trees do
+      local tree = envelope.trees[i]
+      commands[#commands + 1] = {
+        kind = "tree", value = tree,
+        depth = proj:depth(tree.x, tree.y + 0.04, 0.05),
+      }
+    end
+  end
+
   for i = 1, #prepared.buildings do
     local pb = prepared.buildings[i]
     local f = pb.semantic.footprint
@@ -450,18 +498,27 @@ function BuildingRenderer:drawObjects(ctx, proj, prepared)
       depth = proj:depth((f.x0 + f.x1) * 0.5 + ox, f.y1 + oy + 0.10, 0.18),
     }
   end
+
   local actors = self:collectActors(ctx.state, proj)
   for i = 1, #actors do
     commands[#commands + 1] = { kind = "actor", value = actors[i], depth = actors[i].depth }
   end
+
+  local rank = { tree = 1, building = 2, actor = 3 }
   table.sort(commands, function(a, b)
     if a.depth ~= b.depth then return a.depth < b.depth end
-    return a.kind == "building" and b.kind == "actor"
+    return (rank[a.kind] or 9) < (rank[b.kind] or 9)
   end)
+
   for i = 1, #commands do
     local c = commands[i]
-    if c.kind == "building" then self:drawBuilding(proj, c.value)
-    else self:drawActor(proj, c.value) end
+    if c.kind == "building" then
+      self:drawBuilding(proj, c.value)
+    elseif c.kind == "tree" then
+      self:drawTreeCluster(proj, prepared.envelopeTexture, c.value)
+    else
+      self:drawActor(proj, c.value)
+    end
   end
 end
 
@@ -473,7 +530,7 @@ function BuildingRenderer:drawWorld(ctx)
   self:syncResourceIdentity(ctx, ctx.state)
   self:ensureResources(ctx)
   self.lastGroundCells, self.lastActors, self.lastBuildings, self.lastDrawCalls = 0, 0, 0, 0
-  self.lastWorldScenes, self.lastFillActive = 0, false
+  self.lastWorldScenes, self.lastEnvelopeTrees, self.lastEnvelopeActive = 0, 0, false
   local prepared = self:prepareScene(ctx.state)
   if not prepared then return nil end
   self.lastWorldScenes = #prepared.worldScenes
@@ -483,7 +540,6 @@ function BuildingRenderer:drawWorld(ctx)
   love.graphics.setCanvas(self.output)
   rgba(COLORS.sky)
   love.graphics.rectangle("fill", 0, 0, self.outputW, self.outputH)
-  self:drawFiller(proj, prepared)
   self:drawGround(proj, prepared)
   self:drawObjects(ctx, proj, prepared)
   if type(ctx.drawFx) == "function" then
@@ -503,7 +559,9 @@ function BuildingRenderer:metrics()
     buildings = self.lastBuildings,
     actors = self.lastActors,
     worldScenes = self.lastWorldScenes,
-    fillActive = self.lastFillActive,
+    envelopeActive = self.lastEnvelopeActive,
+    envelopeTrees = self.lastEnvelopeTrees,
+    fillActive = false,
     drawCalls = self.lastDrawCalls,
   }
 end
