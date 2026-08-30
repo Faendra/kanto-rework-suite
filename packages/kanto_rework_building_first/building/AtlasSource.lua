@@ -2,6 +2,7 @@ local AtlasSource = {}
 
 local CELL = 16
 local TILE = 8
+local TREE_WALL_BLOCK = 0x0F
 
 local function safeRelease(obj)
   if obj and obj.release then pcall(obj.release, obj) end
@@ -53,19 +54,23 @@ local function regionSignature(r, map, x0, y0, x1, y1)
   return table.concat(parts)
 end
 
-local function fillSignature(r, scenes, bounds)
-  local parts = {
-    tostring(r), tostring(r and r.image), tostring(r and r.quads),
-    tostring(bounds.x0), tostring(bounds.y0), tostring(bounds.x1), tostring(bounds.y1),
-  }
-  for _, scene in ipairs(scenes or {}) do
-    parts[#parts + 1] = table.concat({
-      tostring(scene.map), tostring(scene.map and scene.map.id),
-      tostring(scene.cx), tostring(scene.cy),
-      tostring(scene.map and scene.map.widthCells), tostring(scene.map and scene.map.heightCells),
-    }, ":")
+local function tilesetFor(map, r)
+  return (map and map.tileset) or (r and r.map and r.map.tileset) or nil
+end
+
+local function blockFor(map, r, blockId)
+  local tileset = tilesetFor(map, r)
+  local blocks = tileset and tileset.blocks
+  return blocks and blocks[blockId + 1] or nil
+end
+
+local function blockSignature(r, blockId, block)
+  local parts = { tostring(r.image), ":block:", tostring(blockId), ":" }
+  for i = 1, #block do
+    parts[#parts + 1] = tostring(block[i])
+    parts[#parts + 1] = ","
   end
-  return table.concat(parts, "|")
+  return table.concat(parts)
 end
 
 function AtlasSource.available(map)
@@ -125,60 +130,59 @@ function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   return canvas
 end
 
--- Build the engine's own world-aligned border/void fill once per connected
--- world generation. The map rectangles are then punched transparent so this
--- texture only occupies genuine outside-world gaps; semantic building masks
--- inside a map keep the same neutral underlay behavior as before instead of
--- exposing tree/water fill beneath a building.
-function AtlasSource.worldFillTexture(host, primaryMap, scenes, bounds)
-  local r = rendererFor(primaryMap)
-  if not r or type(r.drawBorderFill) ~= "function" or not bounds then return nil end
-  local w = math.max(1, math.floor((bounds.x1 - bounds.x0) * CELL))
-  local h = math.max(1, math.floor((bounds.y1 - bounds.y0) * CELL))
-  host.atlasFillCache = host.atlasFillCache or {}
-  local key = fillSignature(r, scenes, bounds)
-  if host.atlasFillCache[key] then return host.atlasFillCache[key] end
+-- Material-only access to one vanilla 32x32 block.  WORLD-ENVELOPE-01 uses
+-- the canonical OVERWORLD tree-wall block as foliage art, but the block's
+-- pixels never determine geometry: WorldEnvelope authored the cluster
+-- positions and BuildingRenderer authored the crossed cards.
+function AtlasSource.blockTexture(host, map, blockId)
+  local r = rendererFor(map)
+  if not r or not AtlasSource.available(map) then return nil end
+  local block = blockFor(map, r, blockId)
+  if not block or #block < 16 then return nil end
+  host.atlasBlockCache = host.atlasBlockCache or {}
+  local key = blockSignature(r, blockId, block)
+  if host.atlasBlockCache[key] then return host.atlasBlockCache[key] end
 
-  local canvas = love.graphics.newCanvas(w, h)
+  local canvas = love.graphics.newCanvas(32, 32)
   if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
   love.graphics.push("all")
   love.graphics.setCanvas(canvas)
   love.graphics.clear(0, 0, 0, 0)
   love.graphics.setColor(1, 1, 1, 1)
-  r:drawBorderFill(bounds.x0 * CELL, bounds.y0 * CELL, w, h)
-
-  if type(love.graphics.setBlendMode) == "function" then
-    love.graphics.setBlendMode("replace")
-  end
-  love.graphics.setColor(0, 0, 0, 0)
-  for _, scene in ipairs(scenes or {}) do
-    local map = scene.map
-    local x = (scene.cx - bounds.x0) * CELL
-    local y = (scene.cy - bounds.y0) * CELL
-    local mw = (tonumber(map and map.widthCells) or 0) * CELL
-    local mh = (tonumber(map and map.heightCells) or 0) * CELL
-    love.graphics.rectangle("fill", x, y, mw, mh)
+  for ty = 0, 3 do
+    for tx = 0, 3 do
+      local tile = block[ty * 4 + tx + 1]
+      local q = r.quads[tile]
+      if q then love.graphics.draw(r.image, q, tx * TILE, ty * TILE) end
+    end
   end
   love.graphics.setCanvas()
   love.graphics.pop()
-
-  host.atlasFillCache[key] = canvas
+  host.atlasBlockCache[key] = canvas
   host.lastMaterialBuilds = (host.lastMaterialBuilds or 0) + 1
   return canvas
 end
 
+function AtlasSource.treeWallTexture(host, map)
+  return AtlasSource.blockTexture(host, map, TREE_WALL_BLOCK)
+end
+
 function AtlasSource.invalidate(host)
   if not host then return end
-  local caches = { host.atlasCellCache, host.atlasRegionCache, host.atlasFillCache }
-  local i
+  local caches = {
+    host.atlasCellCache,
+    host.atlasRegionCache,
+    host.atlasBlockCache,
+  }
   for i = 1, #caches do
     local cache = caches[i]
     if cache then
-      local _, canvas
       for _, canvas in pairs(cache) do safeRelease(canvas) end
     end
   end
-  host.atlasCellCache, host.atlasRegionCache, host.atlasFillCache = nil, nil, nil
+  host.atlasCellCache, host.atlasRegionCache, host.atlasBlockCache = nil, nil, nil
 end
+
+AtlasSource.TREE_WALL_BLOCK = TREE_WALL_BLOCK
 
 return AtlasSource
