@@ -113,9 +113,7 @@ for t = 0, 95 do
 end
 
 local W, H = 20, 18
-local map = { id = "PALLET_TOWN", def = { tileset = "OVERWORLD" },
-              widthCells = W, heightCells = H, renderer = rendererStub }
-function map:warpAtCell(x, y)
+local function palletWarpAtCell(self, x, y)
   if x == 5 and y == 5 then
     return { index = 1, def = { destMap = "REDS_HOUSE_1F", destWarp = 1 } }
   end
@@ -132,7 +130,7 @@ local function inHouse(cx, cy, x0)
   return cx >= x0 and cx <= x0 + 3 and cy >= 2 and cy <= 5
 end
 
-function map:tileAt(tx, ty)
+local function palletTileAt(self, tx, ty)
   local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
   local q = (ty % 2) * 2 + (tx % 2)
   local inRed = inHouse(cx, cy, 4)
@@ -154,6 +152,20 @@ function map:tileAt(tx, ty)
   end
   return 0x2C
 end
+
+local function makePalletMap()
+  return {
+    id = "PALLET_TOWN",
+    def = { tileset = "OVERWORLD" },
+    widthCells = W,
+    heightCells = H,
+    renderer = rendererStub,
+    warpAtCell = palletWarpAtCell,
+    tileAt = palletTileAt,
+  }
+end
+
+local map = makePalletMap()
 
 local actorQuad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
 local actorImage = love.graphics.newCanvas(16, 16)
@@ -189,6 +201,7 @@ assert(m1.groundCells == 304, "three semantic footprints were not removed from f
 assert(m1.buildings == 3, "Pallet semantic buildings missing")
 assert(m1.actors == 1, "Red actor billboard missing")
 assert(m1.materialBuilds > 0, "runtime atlas materials were not cached")
+assert(m1.resourceResets == 0, "first draw must establish resource identity without a reset")
 assert(flatCalls == 0, "building-first path invoked flattened map drawing")
 
 local materialBuilds = m1.materialBuilds
@@ -197,11 +210,59 @@ assert(rendered2 ~= nil, "second BUILDING-03 draw failed")
 local m2 = exports.metrics()
 assert(m2.semanticBuilds == 1, "semantic scene rebuilt during stable draw")
 assert(m2.materialBuilds == materialBuilds, "atlas materials rebuilt during stable draw")
+assert(m2.resourceResets == 0, "stable draw reset GPU resource generation")
 assert(map.id == before.mapId and actor.px == before.px and actor.py == before.py,
        "renderer mutated gameplay identity or actor coordinates")
 assert(map:warpAtCell(5, 5).def.destMap == before.redWarp, "renderer mutated Red house warp")
 assert(map:warpAtCell(13, 5).def.destMap == before.rivalWarp, "renderer mutated rival house warp")
 assert(map:warpAtCell(12, 11).def.destMap == before.oakWarp, "renderer mutated Oak lab warp")
 
-print(("PASS building_first_loader_v0232 buildings=%d ground=%d materials=%d")
-  :format(m2.buildings, m2.groundCells, m2.materialBuilds))
+-- Regression: a user can leave this save/session, render a different map, and
+-- then load a fresh PALLET_TOWN instance backed by the same runtime atlas.
+-- Cached material canvases from the previous session must never be reused.
+local otherMap = {
+  id = "REDS_HOUSE_1F",
+  def = { tileset = "HOUSE" },
+  widthCells = W,
+  heightCells = H,
+  renderer = rendererStub,
+  warpAtCell = function() return nil end,
+  tileAt = palletTileAt,
+}
+state.map = otherMap
+local renderedOther = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedOther ~= nil, "intermediate save/map draw failed")
+local mOther = exports.metrics()
+assert(mOther.resourceResets == 1, "map/session replacement did not reset GPU materials")
+assert(mOther.materialBuilds > m2.materialBuilds, "map/session replacement reused stale atlas canvases")
+
+local reloadedPallet = makePalletMap()
+state.map = reloadedPallet
+local renderedReload = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedReload ~= nil, "reloaded Pallet draw failed")
+local mReload = exports.metrics()
+assert(mReload.resourceResets == 2, "returning to a fresh Pallet instance did not reset GPU materials")
+assert(mReload.materialBuilds > mOther.materialBuilds, "reloaded Pallet reused stale material canvases")
+assert(mReload.buildings == 3 and mReload.groundCells == 304,
+       "reloaded Pallet semantic scene did not recover")
+
+-- Regression: WINDOWED <-> BORDERLESS changes the presentation dimensions.
+-- The next frame must recreate mesh/output/material canvases as one resource
+-- generation instead of retaining GPU objects created under the old mode.
+local reloadBuilds = mReload.materialBuilds
+ctx.width, ctx.height = 800, 600
+local renderedResize = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedResize ~= nil, "resized/borderless-equivalent draw failed")
+local mResize = exports.metrics()
+assert(mResize.resourceResets == 3, "display-size change did not reset GPU resource generation")
+assert(mResize.materialBuilds > reloadBuilds, "display-size change reused stale material canvases")
+
+local resizeBuilds = mResize.materialBuilds
+local renderedResize2 = Pipelines.drawWorld("krs_building_first", ctx)
+assert(renderedResize2 ~= nil, "stable post-resize draw failed")
+local mResize2 = exports.metrics()
+assert(mResize2.resourceResets == 3, "stable post-resize frame reset resources again")
+assert(mResize2.materialBuilds == resizeBuilds, "stable post-resize frame rebuilt materials")
+
+print(("PASS building_first_loader_v0232 buildings=%d ground=%d materials=%d resets=%d")
+  :format(mResize2.buildings, mResize2.groundCells, mResize2.materialBuilds, mResize2.resourceResets))
