@@ -130,10 +130,6 @@ function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   return canvas
 end
 
--- Material-only access to one vanilla 32x32 block.  WORLD-ENVELOPE-01 uses
--- the canonical OVERWORLD tree-wall block as foliage art, but the block's
--- pixels never determine geometry: WorldEnvelope authored the cluster
--- positions and BuildingRenderer authored the crossed cards.
 function AtlasSource.blockTexture(host, map, blockId)
   local r = rendererFor(map)
   if not r or not AtlasSource.available(map) then return nil end
@@ -163,17 +159,37 @@ function AtlasSource.blockTexture(host, map, blockId)
   return canvas
 end
 
+-- OVERWORLD block $0F is a 32x32 wall containing four repeated 16x16 tree
+-- canopies. The envelope needs one semantic tree, not the whole wall, so crop
+-- the top-left 2x2 tile quadrant into its own cached material. Pixels remain a
+-- material source only; WorldEnvelope still authors every tree position.
 function AtlasSource.treeWallTexture(host, map)
-  return AtlasSource.blockTexture(host, map, TREE_WALL_BLOCK)
+  local r = rendererFor(map)
+  if not r or not AtlasSource.available(map) then return nil end
+  local block = blockFor(map, r, TREE_WALL_BLOCK)
+  if not block or #block < 16 then return nil end
+  local ids = { block[1], block[2], block[5], block[6] }
+  host.atlasBlockCache = host.atlasBlockCache or {}
+  local key = tostring(r.image) .. ":tree-canopy:" .. table.concat(ids, ",")
+  if host.atlasBlockCache[key] then return host.atlasBlockCache[key] end
+
+  local canvas = love.graphics.newCanvas(CELL, CELL)
+  if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setColor(1, 1, 1, 1)
+  drawIds(r, ids, 0, 0)
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  host.atlasBlockCache[key] = canvas
+  host.lastMaterialBuilds = (host.lastMaterialBuilds or 0) + 1
+  return canvas
 end
 
 function AtlasSource.invalidate(host)
   if not host then return end
-  local caches = {
-    host.atlasCellCache,
-    host.atlasRegionCache,
-    host.atlasBlockCache,
-  }
+  local caches = { host.atlasCellCache, host.atlasRegionCache, host.atlasBlockCache }
   for i = 1, #caches do
     local cache = caches[i]
     if cache then
