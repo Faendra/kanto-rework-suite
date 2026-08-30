@@ -106,18 +106,29 @@ local function makeMap()
     local inRed = cx >= 4 and cx <= 7 and cy >= 2 and cy <= 5
     local inRival = cx >= 12 and cx <= 15 and cy >= 2 and cy <= 5
     if (inRed or inRival) and cy <= 3 then return 20 + q end
-    if (inRed or inRival) and cy >= 4 then if (cx == 5 or cx == 13) and cy == 5 then return 40 end; return 30 + q end
+    if (inRed or inRival) and cy >= 4 then
+      if (cx == 5 or cx == 13) and cy == 5 then return 40 end
+      return 30 + q
+    end
     local inOak = cx >= 10 and cx <= 15 and cy >= 8 and cy <= 11
-    if inOak and cy <= 9 then if cx == 10 or cx == 15 then return 54 + q end; return 50 + q end
-    if inOak and cy >= 10 then if cx == 12 and cy == 11 then return 64 end; return 60 + q end
+    if inOak and cy <= 9 then
+      if cx == 10 or cx == 15 then return 54 + q end
+      return 50 + q
+    end
+    if inOak and cy >= 10 then
+      if cx == 12 and cy == 11 then return 64 end
+      return 60 + q
+    end
     return 1
   end
   return map
 end
 
 local function makeRoute1(renderer)
-  local map = { id = "ROUTE_1", def = { tileset = "OVERWORLD" }, tileset = OVERWORLD_TILESET,
-                widthCells = 20, heightCells = 36, renderer = renderer }
+  local map = {
+    id = "ROUTE_1", def = { tileset = "OVERWORLD" }, tileset = OVERWORLD_TILESET,
+    widthCells = 20, heightCells = 36, renderer = renderer,
+  }
   function map:warpAtCell() end
   function map:tileAt() return 2 end
   return map
@@ -128,11 +139,14 @@ local function makeActor()
   love.graphics.push("all"); love.graphics.setCanvas(c); love.graphics.clear(0, 0, 0, 0)
   love.graphics.setColor(0.18, 0.18, 0.18, 1); love.graphics.rectangle("fill", 5, 1, 6, 5)
   love.graphics.setColor(0.85, 0.85, 0.85, 1); love.graphics.rectangle("fill", 4, 6, 8, 5)
-  love.graphics.setColor(0.32, 0.32, 0.32, 1); love.graphics.rectangle("fill", 4, 11, 3, 5); love.graphics.rectangle("fill", 9, 11, 3, 5)
+  love.graphics.setColor(0.32, 0.32, 0.32, 1)
+  love.graphics.rectangle("fill", 4, 11, 3, 5); love.graphics.rectangle("fill", 9, 11, 3, 5)
   love.graphics.setCanvas(); love.graphics.pop()
   local quad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
-  local sprite = { getPoseGeometry = function() return { quad = quad, width = 16, height = 16, anchorX = 8, anchorY = 16 } end,
-                   resolveImage = function() return c end }
+  local sprite = {
+    getPoseGeometry = function() return { quad = quad, width = 16, height = 16, anchorX = 8, anchorY = 16 } end,
+    resolveImage = function() return c end,
+  }
   local actor = { id = "RED", px = 10 * 16, py = 13 * 16 }
   function actor:pose() return sprite, self.px, self.py, "down", 0, false, false end
   return actor
@@ -147,8 +161,10 @@ function love.load()
   local renderer = Renderer.new(Projection, AtlasSource, builder, WorldScene, WorldEnvelope)
   renderer:update(0, 1)
   local state = { map = map, neighbors = {}, entities = { actor }, ghosts = {}, player = actor }
-  local ctx = { width = 1280, height = 800, vw = 160, vh = 144, scale = 4,
-                state = state, cam = { x = 0, y = 0 }, bgY = 0, drawFx = function() end }
+  local ctx = {
+    width = 1280, height = 800, vw = 160, vh = 144, scale = 4,
+    state = state, cam = { x = 0, y = 0 }, bgY = 0, drawFx = function() end,
+  }
 
   actor.px, actor.py = 10 * 16, 13 * 16
   local town = assert(renderer:drawWorld(ctx)); saveCanvas(town, "building-first-raw-pallet.png")
@@ -165,8 +181,11 @@ function love.load()
 
   for _, m in ipairs({ townMetrics, redMetrics, rivalMetrics, oakMetrics }) do
     assert(m.buildings == 3 and m.groundCells == 304 and m.worldScenes == 1)
+    assert(m.groundSurfaces == 1, "Pallet ground must be one batched surface")
     assert(m.envelopeActive and m.envelopeTrees > 0, "forest envelope missing")
+    assert(m.envelopeFloorRuns > 0, "local forest floor missing")
     assert(m.fillActive == false, "planar filler returned")
+    assert(m.drawCalls < m.groundCells, "ground regressed to cell-scale draw calls")
   end
   assert(townMetrics.materialBuilds == redMetrics.materialBuilds
          and redMetrics.materialBuilds == rivalMetrics.materialBuilds
@@ -178,9 +197,13 @@ function love.load()
   local connected = assert(renderer:drawWorld(ctx)); saveCanvas(connected, "building-first-raw-connected.png")
   local cm = renderer:metrics()
   assert(cm.worldScenes == 2 and cm.groundCells == 304 + 20 * 36)
+  assert(cm.groundSurfaces == 2, "connected world must batch one ground surface per map")
   assert(cm.envelopeActive and cm.envelopeTrees > 0 and cm.fillActive == false)
+  assert(cm.envelopeFloorRuns > 0, "connected world lost local forest floor")
+  assert(cm.drawCalls < cm.groundCells, "connected ground regressed to per-cell rendering")
 
-  print(("BUILDING_FIRST_LOVE_OK materials=%d buildings=%d ground=%d scenes=%d trees=%d drawCalls=%d")
-    :format(cm.materialBuilds, cm.buildings, cm.groundCells, cm.worldScenes, cm.envelopeTrees, cm.drawCalls))
+  print(("BUILDING_FIRST_LOVE_OK materials=%d buildings=%d ground=%d surfaces=%d scenes=%d trees=%d floorRuns=%d drawCalls=%d")
+    :format(cm.materialBuilds, cm.buildings, cm.groundCells, cm.groundSurfaces,
+            cm.worldScenes, cm.envelopeTrees, cm.envelopeFloorRuns, cm.drawCalls))
   love.event.quit()
 end
