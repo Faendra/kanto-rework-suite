@@ -36,9 +36,17 @@ local function sceneKey(map)
   }, ":")
 end
 
+local function groundClaim(building)
+  -- A Gen1 building sprite is a mixed projection: top-facing roof rows encode
+  -- depth while front-facing facade rows encode height. The full vanilla
+  -- drawing still has to disappear from the flat ground pass, but that source
+  -- rectangle is not necessarily the physical 3D footprint.
+  return building.groundClaim or building.footprint
+end
+
 local function coveredByBuilding(buildings, x, y)
   for i = 1, #buildings do
-    local f = buildings[i].footprint
+    local f = groundClaim(buildings[i])
     if f and x >= f.x0 and x < f.x1 and y >= f.y0 and y < f.y1 then
       return true
     end
@@ -52,9 +60,6 @@ local function groundCells(map, buildings)
   local h = math.max(0, math.floor(tonumber(map and map.heightCells) or 0))
   for y = 0, h - 1 do
     for x = 0, w - 1 do
-      -- Semantic structures own their footprints. Source pixels inside those
-      -- footprints remain available as material input, but are not redrawn as
-      -- a second flattened copy on the world ground.
       if not coveredByBuilding(buildings, x, y) then
         out[#out + 1] = { kind = "ground", x = x, y = y, z = 0 }
       end
