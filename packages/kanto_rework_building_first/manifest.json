@@ -1,7 +1,7 @@
 {
   "id": "kanto_rework_building_first",
   "name": "Kanto Rework — Building First HD-2D",
-  "version": "0.5.0-architecture-volume01",
+  "version": "0.6.0-firered-skin01",
   "api": 2,
   "entry": "main.lua",
   "profile": "content",
@@ -12,5 +12,5 @@
   "dependencies": [],
   "optional_dependencies": [],
   "permissions": [],
-  "description": "Architecture Volume-01: Pallet World-01 plus full-depth semantic Red/Rival houses and Oak Lab. Source projection masking, authored building volume and visual occlusion are separate profile concepts; Gen1Recomp gameplay remains authoritative."
+  "description": "FireRed Skin-01: Architecture Volume-01 plus a semantic FireRed/LeafGreen visual skin prototype on Red's Pallet house. Gen1Recomp remains authoritative for maps, collisions, warps, actors and gameplay; FireRed pixels are visual material input only."
 }
