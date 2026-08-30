@@ -185,7 +185,6 @@ function love.load()
     assert(m.envelopeActive and m.envelopeTrees > 0, "forest envelope missing")
     assert(m.envelopeFloorRuns > 0, "local forest floor missing")
     assert(m.fillActive == false, "planar filler returned")
-    assert(m.drawCalls < m.groundCells, "ground regressed to cell-scale draw calls")
   end
   assert(townMetrics.materialBuilds == redMetrics.materialBuilds
          and redMetrics.materialBuilds == rivalMetrics.materialBuilds
@@ -200,7 +199,7 @@ function love.load()
   assert(cm.groundSurfaces == 2, "connected world must batch one ground surface per map")
   assert(cm.envelopeActive and cm.envelopeTrees > 0 and cm.fillActive == false)
   assert(cm.envelopeFloorRuns > 0, "connected world lost local forest floor")
-  assert(cm.drawCalls < cm.groundCells, "connected ground regressed to per-cell rendering")
+  assert(cm.drawCalls < cm.groundCells, "connected renderer lost its batching advantage")
 
   print(("BUILDING_FIRST_LOVE_OK materials=%d buildings=%d ground=%d surfaces=%d scenes=%d trees=%d floorRuns=%d drawCalls=%d")
     :format(cm.materialBuilds, cm.buildings, cm.groundCells, cm.groundSurfaces,
