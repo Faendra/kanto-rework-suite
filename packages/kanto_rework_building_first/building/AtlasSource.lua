@@ -53,6 +53,21 @@ local function regionSignature(r, map, x0, y0, x1, y1)
   return table.concat(parts)
 end
 
+local function fillSignature(r, scenes, bounds)
+  local parts = {
+    tostring(r), tostring(r and r.image), tostring(r and r.quads),
+    tostring(bounds.x0), tostring(bounds.y0), tostring(bounds.x1), tostring(bounds.y1),
+  }
+  for _, scene in ipairs(scenes or {}) do
+    parts[#parts + 1] = table.concat({
+      tostring(scene.map), tostring(scene.map and scene.map.id),
+      tostring(scene.cx), tostring(scene.cy),
+      tostring(scene.map and scene.map.widthCells), tostring(scene.map and scene.map.heightCells),
+    }, ":")
+  end
+  return table.concat(parts, "|")
+end
+
 function AtlasSource.available(map)
   return rendererFor(map) ~= nil and love and love.graphics
      and type(love.graphics.newCanvas) == "function"
@@ -110,9 +125,51 @@ function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   return canvas
 end
 
+-- Build the engine's own world-aligned border/void fill once per connected
+-- world generation. The map rectangles are then punched transparent so this
+-- texture only occupies genuine outside-world gaps; semantic building masks
+-- inside a map keep the same neutral underlay behavior as before instead of
+-- exposing tree/water fill beneath a building.
+function AtlasSource.worldFillTexture(host, primaryMap, scenes, bounds)
+  local r = rendererFor(primaryMap)
+  if not r or type(r.drawBorderFill) ~= "function" or not bounds then return nil end
+  local w = math.max(1, math.floor((bounds.x1 - bounds.x0) * CELL))
+  local h = math.max(1, math.floor((bounds.y1 - bounds.y0) * CELL))
+  host.atlasFillCache = host.atlasFillCache or {}
+  local key = fillSignature(r, scenes, bounds)
+  if host.atlasFillCache[key] then return host.atlasFillCache[key] end
+
+  local canvas = love.graphics.newCanvas(w, h)
+  if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setColor(1, 1, 1, 1)
+  r:drawBorderFill(bounds.x0 * CELL, bounds.y0 * CELL, w, h)
+
+  if type(love.graphics.setBlendMode) == "function" then
+    love.graphics.setBlendMode("replace")
+  end
+  love.graphics.setColor(0, 0, 0, 0)
+  for _, scene in ipairs(scenes or {}) do
+    local map = scene.map
+    local x = (scene.cx - bounds.x0) * CELL
+    local y = (scene.cy - bounds.y0) * CELL
+    local mw = (tonumber(map and map.widthCells) or 0) * CELL
+    local mh = (tonumber(map and map.heightCells) or 0) * CELL
+    love.graphics.rectangle("fill", x, y, mw, mh)
+  end
+  love.graphics.setCanvas()
+  love.graphics.pop()
+
+  host.atlasFillCache[key] = canvas
+  host.lastMaterialBuilds = (host.lastMaterialBuilds or 0) + 1
+  return canvas
+end
+
 function AtlasSource.invalidate(host)
   if not host then return end
-  local caches = { host.atlasCellCache, host.atlasRegionCache }
+  local caches = { host.atlasCellCache, host.atlasRegionCache, host.atlasFillCache }
   local i
   for i = 1, #caches do
     local cache = caches[i]
@@ -121,7 +178,7 @@ function AtlasSource.invalidate(host)
       for _, canvas in pairs(cache) do safeRelease(canvas) end
     end
   end
-  host.atlasCellCache, host.atlasRegionCache = nil, nil
+  host.atlasCellCache, host.atlasRegionCache, host.atlasFillCache = nil, nil, nil
 end
 
 return AtlasSource
