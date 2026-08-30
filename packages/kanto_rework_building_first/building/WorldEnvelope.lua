@@ -2,20 +2,21 @@ local WorldEnvelope = {}
 
 -- WORLD-ENVELOPE-01
 --
--- The gameplay maps remain the only authoritative world rectangles.  This
+-- The gameplay maps remain the only authoritative world rectangles. This
 -- module creates VISUAL-ONLY objects outside those rectangles so the 3/4
--- camera never exposes a flat map sheet floating in sky.  It deliberately
+-- camera never exposes a flat map sheet floating in sky. It deliberately
 -- does not infer collisions, warps, walkability or new gameplay terrain.
 --
 -- For OVERWORLD scenes the first envelope type is a dense forest belt made
--- from authored tree-cluster instances.  Connected maps supplied by
--- Gen1Recomp are part of the occupied world, so the belt automatically leaves
--- their seams open instead of painting trees over a real connection.
+-- from authored tree instances. Connected maps supplied by Gen1Recomp are
+-- part of the occupied world, so the belt automatically leaves their seams
+-- open instead of painting trees over a real connection.
 
-local DEFAULT_DEPTH = 10
-local CLUSTER_STEP = 2
-local CLUSTER_WIDTH = 1.85
-local CLUSTER_HEIGHT = 3.15
+local DEFAULT_DEPTH = 6
+local TREE_STEP = 1.80
+local TREE_WIDTH = 1.68
+local TREE_HEIGHT = 2.45
+local MIN_DISTANCE = 0.42
 
 local function rectFor(scene)
   local map = scene and scene.map
@@ -84,70 +85,61 @@ local function distanceToWorld(rects, x, y)
 end
 
 local function deterministicJitter(ix, iy)
-  -- Small deterministic offsets break the obvious square lattice without
-  -- introducing frame-to-frame noise or any dependency on math.random state.
   local a = ((ix * 37 + iy * 17) % 7) - 3
   local b = ((ix * 13 + iy * 29) % 5) - 2
-  return a * 0.035, b * 0.045
+  return a * 0.040, b * 0.050
 end
 
 function WorldEnvelope.build(state, scenes, depth)
-  local out = {
-    kind = "none",
-    trees = {},
-    depth = 0,
-    bounds = nil,
-  }
+  local out = { kind = "none", trees = {}, depth = 0, bounds = nil }
   if not forestMode(state) then return out end
 
   local rects, bounds = worldRects(scenes)
   if not bounds or #rects == 0 then return out end
 
-  depth = math.max(2, math.floor(tonumber(depth) or DEFAULT_DEPTH))
+  depth = math.max(2, tonumber(depth) or DEFAULT_DEPTH)
   out.kind = "forest"
   out.depth = depth
   out.bounds = {
-    x0 = math.floor(bounds.x0 - depth),
-    y0 = math.floor(bounds.y0 - depth),
-    x1 = math.ceil(bounds.x1 + depth),
-    y1 = math.ceil(bounds.y1 + depth),
+    x0 = bounds.x0 - depth,
+    y0 = bounds.y0 - depth,
+    x1 = bounds.x1 + depth,
+    y1 = bounds.y1 + depth,
   }
 
-  local row = 0
-  local y = out.bounds.y0
+  local row, y = 0, out.bounds.y0
   while y < out.bounds.y1 do
-    local stagger = (row % 2 == 0) and 0 or 0.72
-    local col = 0
-    local x = out.bounds.x0
+    local stagger = (row % 2 == 0) and 0 or TREE_STEP * 0.48
+    local col, x = 0, out.bounds.x0
     while x < out.bounds.x1 do
-      local cx = x + CLUSTER_STEP * 0.5 + stagger
-      local cy = y + CLUSTER_STEP * 0.62
+      local cx = x + TREE_STEP * 0.5 + stagger
+      local cy = y + TREE_STEP * 0.58
       if not insideAny(rects, cx, cy) then
         local d = distanceToWorld(rects, cx, cy)
-        if d <= depth + 0.75 then
+        if d >= MIN_DISTANCE and d <= depth + TREE_STEP * 0.6 then
           local jx, jy = deterministicJitter(col + row * 97, row)
           out.trees[#out.trees + 1] = {
-            kind = "tree_cluster",
+            kind = "tree",
             x = cx + jx,
             y = cy + jy,
             z = 0,
-            width = CLUSTER_WIDTH,
-            height = CLUSTER_HEIGHT,
+            width = TREE_WIDTH,
+            height = TREE_HEIGHT,
             row = row,
           }
         end
       end
       col = col + 1
-      x = x + CLUSTER_STEP
+      x = x + TREE_STEP
     end
     row = row + 1
-    y = y + CLUSTER_STEP
+    y = y + TREE_STEP
   end
 
   return out
 end
 
 WorldEnvelope.DEFAULT_DEPTH = DEFAULT_DEPTH
-WorldEnvelope.CLUSTER_STEP = CLUSTER_STEP
+WorldEnvelope.TREE_STEP = TREE_STEP
 
 return WorldEnvelope
