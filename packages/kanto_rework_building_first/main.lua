@@ -56,8 +56,8 @@ mod.exports.atlasSource = AtlasSource
 mod.exports.metrics = function() return renderer:metrics() end
 
 mod.content.render_pipelines:register("krs_building_first", {
-  label = "KRS ARCH VOLUME",
-  levels = { "OFF", "ARCH-VOLUME-01", "ARCH-VOLUME-01", "ARCH-VOLUME-01" },
+  label = "KRS FIRERED SKIN",
+  levels = { "OFF", "FIRERED-SKIN-01", "FIRERED-SKIN-01", "FIRERED-SKIN-01" },
   hotkey = "8",
   priority = 70,
   available = function() return renderer:available() end,
