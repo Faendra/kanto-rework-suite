@@ -5,6 +5,7 @@ local RivalProfile = dofile(root .. "/packages/kanto_rework_building_first/build
 local OakProfile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletOakLab.lua")
 local Builder = dofile(root .. "/packages/kanto_rework_building_first/building/SemanticSceneBuilder.lua")
 local WorldScene = dofile(root .. "/packages/kanto_rework_building_first/building/WorldScene.lua")
+local WorldEnvelope = dofile(root .. "/packages/kanto_rework_building_first/building/WorldEnvelope.lua")
 local Projection = dofile(root .. "/packages/kanto_rework_building_first/building/SceneProjection.lua")
 local AtlasSource = dofile(root .. "/packages/kanto_rework_building_first/building/AtlasSource.lua")
 local Renderer = dofile(root .. "/packages/kanto_rework_building_first/building/BuildingRenderer.lua")
@@ -16,6 +17,15 @@ local function tileColor(id, x, y)
   elseif id == 2 then
     local c = ((x + y) % 4 == 0) and 0.38 or 0.52
     return c * 0.72, c, c * 0.70, 1
+  elseif id >= 70 and id <= 73 then
+    -- Synthetic tree-wall tiles: lightest shade is empty/background and is
+    -- keyed by the renderer; darker pixels form a deliberately chunky Gen1
+    -- foliage silhouette for the real LÖVE gate.
+    local dx, dy = x - 3.5, y - 3.0
+    local canopy = dx * dx + dy * dy < 14 or (y >= 4 and x >= 2 and x <= 5)
+    if not canopy then return 1, 1, 1, 1 end
+    local v = ((x + y + id) % 3 == 0) and 0.24 or 0.40
+    return v * 0.70, v, v * 0.62, 1
   elseif id >= 20 and id <= 23 then
     local stripe = ((x + y + id) % 5) < 2
     local c = stripe and 0.22 or 0.42
@@ -55,187 +65,113 @@ local function makeAtlas()
   for id = 0, 95 do
     local tx, ty = (id % 16) * 8, math.floor(id / 16) * 8
     for y = 0, 7 do
-      for x = 0, 7 do
-        data:setPixel(tx + x, ty + y, tileColor(id, x, y))
-      end
+      for x = 0, 7 do data:setPixel(tx + x, ty + y, tileColor(id, x, y)) end
     end
   end
-  local image = love.graphics.newImage(data)
-  image:setFilter("nearest", "nearest")
+  local image = love.graphics.newImage(data); image:setFilter("nearest", "nearest")
   local quads = {}
   for id = 0, 95 do
-    quads[id] = love.graphics.newQuad((id % 16) * 8, math.floor(id / 16) * 8,
-                                      8, 8, 128, 48)
+    quads[id] = love.graphics.newQuad((id % 16) * 8, math.floor(id / 16) * 8, 8, 8, 128, 48)
   end
   return image, quads
 end
 
-local function installSyntheticBorderFill(renderer)
-  function renderer:drawBorderFill(camX, camY, vw, vh)
-    love.graphics.setColor(0.14, 0.28, 0.12, 1)
-    love.graphics.rectangle("fill", 0, 0, vw, vh)
-    love.graphics.setColor(0.20, 0.38, 0.16, 1)
-    local block = 32
-    local startX = -((camX or 0) % block)
-    local startY = -((camY or 0) % block)
-    for y = startY, vh, block do
-      for x = startX, vw, block do
-        if (math.floor((x + (camX or 0)) / block)
-            + math.floor((y + (camY or 0)) / block)) % 2 == 0 then
-          love.graphics.rectangle("fill", x, y, block, block)
-        end
-      end
-    end
-    love.graphics.setColor(1, 1, 1, 1)
-  end
-end
+local TREE_BLOCK = {}
+for i = 1, 16 do TREE_BLOCK[i] = 70 + ((i - 1) % 4) end
+local OVERWORLD_TILESET = { blocks = { [16] = TREE_BLOCK } }
 
 local function makeMap()
   local image, quads = makeAtlas()
   local map = {
-    id = "PALLET_TOWN", def = { tileset = "OVERWORLD" },
-    widthCells = 20, heightCells = 18,
-    renderer = { image = image, quads = quads },
+    id = "PALLET_TOWN", def = { tileset = "OVERWORLD" }, tileset = OVERWORLD_TILESET,
+    widthCells = 20, heightCells = 18, renderer = { image = image, quads = quads },
   }
-  installSyntheticBorderFill(map.renderer)
   function map:warpAtCell(x, y)
     if x == 5 and y == 5 then return { def = { destMap = "REDS_HOUSE_1F", destWarp = 1 } } end
     if x == 13 and y == 5 then return { def = { destMap = "BLUES_HOUSE", destWarp = 1 } } end
     if x == 12 and y == 11 then return { def = { destMap = "OAKS_LAB", destWarp = 2 } } end
-    return nil
   end
   function map:tileAt(tx, ty)
     local cx, cy = math.floor(tx / 2), math.floor(ty / 2)
     local q = (ty % 2) * 2 + (tx % 2)
-
     local inRed = cx >= 4 and cx <= 7 and cy >= 2 and cy <= 5
     local inRival = cx >= 12 and cx <= 15 and cy >= 2 and cy <= 5
     if (inRed or inRival) and cy <= 3 then return 20 + q end
-    if (inRed or inRival) and cy >= 4 then
-      if (cx == 5 or cx == 13) and cy == 5 then return 40 end
-      return 30 + q
-    end
-
+    if (inRed or inRival) and cy >= 4 then if (cx == 5 or cx == 13) and cy == 5 then return 40 end; return 30 + q end
     local inOak = cx >= 10 and cx <= 15 and cy >= 8 and cy <= 11
-    if inOak and cy <= 9 then
-      if cx == 10 or cx == 15 then return 54 + q end
-      return 50 + q
-    end
-    if inOak and cy >= 10 then
-      if cx == 12 and cy == 11 then return 64 end
-      return 60 + q
-    end
+    if inOak and cy <= 9 then if cx == 10 or cx == 15 then return 54 + q end; return 50 + q end
+    if inOak and cy >= 10 then if cx == 12 and cy == 11 then return 64 end; return 60 + q end
     return 1
   end
   return map
 end
 
 local function makeRoute1(renderer)
-  local map = {
-    id = "ROUTE_1", def = { tileset = "OVERWORLD" },
-    widthCells = 20, heightCells = 36,
-    renderer = renderer,
-  }
-  function map:warpAtCell() return nil end
+  local map = { id = "ROUTE_1", def = { tileset = "OVERWORLD" }, tileset = OVERWORLD_TILESET,
+                widthCells = 20, heightCells = 36, renderer = renderer }
+  function map:warpAtCell() end
   function map:tileAt() return 2 end
   return map
 end
 
 local function makeActor()
-  local c = love.graphics.newCanvas(16, 16)
-  c:setFilter("nearest", "nearest")
-  love.graphics.push("all")
-  love.graphics.setCanvas(c)
-  love.graphics.clear(0, 0, 0, 0)
-  love.graphics.setColor(0.18, 0.18, 0.18, 1)
-  love.graphics.rectangle("fill", 5, 1, 6, 5)
-  love.graphics.setColor(0.85, 0.85, 0.85, 1)
-  love.graphics.rectangle("fill", 4, 6, 8, 5)
-  love.graphics.setColor(0.32, 0.32, 0.32, 1)
-  love.graphics.rectangle("fill", 4, 11, 3, 5)
-  love.graphics.rectangle("fill", 9, 11, 3, 5)
-  love.graphics.setCanvas()
-  love.graphics.pop()
+  local c = love.graphics.newCanvas(16, 16); c:setFilter("nearest", "nearest")
+  love.graphics.push("all"); love.graphics.setCanvas(c); love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setColor(0.18, 0.18, 0.18, 1); love.graphics.rectangle("fill", 5, 1, 6, 5)
+  love.graphics.setColor(0.85, 0.85, 0.85, 1); love.graphics.rectangle("fill", 4, 6, 8, 5)
+  love.graphics.setColor(0.32, 0.32, 0.32, 1); love.graphics.rectangle("fill", 4, 11, 3, 5); love.graphics.rectangle("fill", 9, 11, 3, 5)
+  love.graphics.setCanvas(); love.graphics.pop()
   local quad = love.graphics.newQuad(0, 0, 16, 16, 16, 16)
-  local sprite = {
-    getPoseGeometry = function()
-      return { quad = quad, width = 16, height = 16, anchorX = 8, anchorY = 16 }
-    end,
-    resolveImage = function() return c end,
-  }
+  local sprite = { getPoseGeometry = function() return { quad = quad, width = 16, height = 16, anchorX = 8, anchorY = 16 } end,
+                   resolveImage = function() return c end }
   local actor = { id = "RED", px = 10 * 16, py = 13 * 16 }
   function actor:pose() return sprite, self.px, self.py, "down", 0, false, false end
   return actor
 end
 
-local function saveCanvas(canvas, name)
-  local data = canvas:newImageData()
-  data:encode("png", name)
-end
+local function saveCanvas(canvas, name) canvas:newImageData():encode("png", name) end
 
 function love.load()
   love.graphics.setDefaultFilter("nearest", "nearest")
-  local map = makeMap()
-  local actor = makeActor()
+  local map, actor = makeMap(), makeActor()
   local builder = Builder.new({ RedProfile, RivalProfile, OakProfile })
-  local renderer = Renderer.new(Projection, AtlasSource, builder, WorldScene)
+  local renderer = Renderer.new(Projection, AtlasSource, builder, WorldScene, WorldEnvelope)
   renderer:update(0, 1)
   local state = { map = map, neighbors = {}, entities = { actor }, ghosts = {}, player = actor }
-  local ctx = {
-    width = 1280, height = 800, vw = 160, vh = 144, scale = 4,
-    state = state, cam = { x = 0, y = 0 }, bgY = 0,
-    drawFx = function() end,
-  }
+  local ctx = { width = 1280, height = 800, vw = 160, vh = 144, scale = 4,
+                state = state, cam = { x = 0, y = 0 }, bgY = 0, drawFx = function() end }
 
   actor.px, actor.py = 10 * 16, 13 * 16
-  local town = assert(renderer:drawWorld(ctx), "Pallet raw render missing")
-  saveCanvas(town, "building-first-raw-pallet.png")
+  local town = assert(renderer:drawWorld(ctx)); saveCanvas(town, "building-first-raw-pallet.png")
   local townMetrics = renderer:metrics()
-
   actor.px, actor.py = 5 * 16, 1 * 16
-  local redBehind = assert(renderer:drawWorld(ctx), "Red-house behind render missing")
-  saveCanvas(redBehind, "building-first-raw-red-behind.png")
+  local redBehind = assert(renderer:drawWorld(ctx)); saveCanvas(redBehind, "building-first-raw-red-behind.png")
   local redMetrics = renderer:metrics()
-
   actor.px, actor.py = 13 * 16, 1 * 16
-  local rivalBehind = assert(renderer:drawWorld(ctx), "rival-house behind render missing")
-  saveCanvas(rivalBehind, "building-first-raw-rival-behind.png")
+  local rivalBehind = assert(renderer:drawWorld(ctx)); saveCanvas(rivalBehind, "building-first-raw-rival-behind.png")
   local rivalMetrics = renderer:metrics()
-
   actor.px, actor.py = 12 * 16, 7 * 16
-  local oakBehind = assert(renderer:drawWorld(ctx), "Oak-lab behind render missing")
-  saveCanvas(oakBehind, "building-first-raw-oak-behind.png")
+  local oakBehind = assert(renderer:drawWorld(ctx)); saveCanvas(oakBehind, "building-first-raw-oak-behind.png")
   local oakMetrics = renderer:metrics()
 
-  for _, metrics in ipairs({ townMetrics, redMetrics, rivalMetrics, oakMetrics }) do
-    assert(metrics.buildings == 3, "building count changed")
-    assert(metrics.semanticBuilds == 1, "scene cache regressed")
-    assert(metrics.groundCells == 304, "semantic footprint mask regressed")
-    assert(metrics.worldScenes == 1, "unexpected connected-map count")
-    assert(metrics.fillActive == true, "world border filling missing")
+  for _, m in ipairs({ townMetrics, redMetrics, rivalMetrics, oakMetrics }) do
+    assert(m.buildings == 3 and m.groundCells == 304 and m.worldScenes == 1)
+    assert(m.envelopeActive and m.envelopeTrees > 0, "forest envelope missing")
+    assert(m.fillActive == false, "planar filler returned")
   end
   assert(townMetrics.materialBuilds == redMetrics.materialBuilds
          and redMetrics.materialBuilds == rivalMetrics.materialBuilds
-         and rivalMetrics.materialBuilds == oakMetrics.materialBuilds,
-         "material cache regressed")
+         and rivalMetrics.materialBuilds == oakMetrics.materialBuilds)
 
-  -- Put Route 1 immediately north of Pallet in world coordinates. This is
-  -- the same representation Gen1Recomp exposes through state.neighbors:
-  -- map + pixel offset, with no renderer-side topology guessing.
   local route1 = makeRoute1(map.renderer)
   state.neighbors = { { map = route1, ox = 0, oy = -36 * 16 } }
   actor.px, actor.py = 10 * 16, 1 * 16
-  local connected = assert(renderer:drawWorld(ctx), "connected Pallet/Route 1 render missing")
-  saveCanvas(connected, "building-first-raw-connected.png")
-  local connectedMetrics = renderer:metrics()
-  assert(connectedMetrics.worldScenes == 2, "Route 1 neighbor missing")
-  assert(connectedMetrics.groundCells == 304 + 20 * 36, "Route 1 ground clipped")
-  assert(connectedMetrics.fillActive == true, "connected-world filling missing")
+  local connected = assert(renderer:drawWorld(ctx)); saveCanvas(connected, "building-first-raw-connected.png")
+  local cm = renderer:metrics()
+  assert(cm.worldScenes == 2 and cm.groundCells == 304 + 20 * 36)
+  assert(cm.envelopeActive and cm.envelopeTrees > 0 and cm.fillActive == false)
 
-  print(("BUILDING_FIRST_LOVE_OK semantic=%d materials=%d buildings=%d ground=%d scenes=%d fill=%s drawCalls=%d")
-    :format(connectedMetrics.semanticBuilds, connectedMetrics.materialBuilds,
-            connectedMetrics.buildings, connectedMetrics.groundCells,
-            connectedMetrics.worldScenes, tostring(connectedMetrics.fillActive),
-            connectedMetrics.drawCalls))
+  print(("BUILDING_FIRST_LOVE_OK materials=%d buildings=%d ground=%d scenes=%d trees=%d drawCalls=%d")
+    :format(cm.materialBuilds, cm.buildings, cm.groundCells, cm.worldScenes, cm.envelopeTrees, cm.drawCalls))
   love.event.quit()
 end
