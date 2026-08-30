@@ -26,7 +26,6 @@ local function idsFor(map, cx, cy)
 end
 
 local function drawIds(r, ids, dx, dy)
-  local ty, tx
   for ty = 0, 1 do
     for tx = 0, 1 do
       local q = r.quads[ids[ty * 2 + tx + 1]]
@@ -40,9 +39,10 @@ local function cellSignature(r, ids)
 end
 
 local function regionSignature(r, map, x0, y0, x1, y1)
-  local parts = { tostring(r.image), ":region:", tostring(x0), ",", tostring(y0), ":",
-                  tostring(x1), ",", tostring(y1), ":" }
-  local x, y
+  local parts = {
+    tostring(r.image), ":region:", tostring(x0), ",", tostring(y0), ":",
+    tostring(x1), ",", tostring(y1), ":",
+  }
   for y = y0, y1 do
     for x = x0, x1 do
       local ids = idsFor(map, x, y)
@@ -52,6 +52,19 @@ local function regionSignature(r, map, x0, y0, x1, y1)
     end
   end
   return table.concat(parts)
+end
+
+local function groundSignature(r, map, ground)
+  local h = 17
+  for i = 1, #(ground or {}) do
+    local c = ground[i]
+    h = (h * 131 + (tonumber(c.x) or 0) * 17 + (tonumber(c.y) or 0) * 31) % 2147483647
+  end
+  return table.concat({
+    tostring(r.image), ":ground:", tostring(map), ":",
+    tostring(map and map.widthCells), "x", tostring(map and map.heightCells), ":",
+    tostring(#(ground or {})), ":", tostring(h),
+  })
 end
 
 local function tilesetFor(map, r)
@@ -101,6 +114,41 @@ function AtlasSource.cellTexture(host, map, cx, cy)
   return canvas
 end
 
+-- Compose one transparent whole-map material from the semantic ground cells.
+-- Building source rectangles remain transparent. Geometry is still tessellated
+-- later by BuildingRenderer, so perspective remains correct at cell boundaries
+-- while the GPU sees one texture/draw call per map instead of one per cell.
+function AtlasSource.groundSurfaceTexture(host, map, ground)
+  local r = rendererFor(map)
+  if not r or not AtlasSource.available(map) then return nil end
+  local wCells = math.max(0, math.floor(tonumber(map and map.widthCells) or 0))
+  local hCells = math.max(0, math.floor(tonumber(map and map.heightCells) or 0))
+  if wCells <= 0 or hCells <= 0 then return nil end
+
+  host.atlasGroundCache = host.atlasGroundCache or {}
+  local key = groundSignature(r, map, ground)
+  if host.atlasGroundCache[key] then return host.atlasGroundCache[key] end
+
+  local canvas = love.graphics.newCanvas(wCells * CELL, hCells * CELL)
+  if canvas.setFilter then canvas:setFilter("nearest", "nearest") end
+  love.graphics.push("all")
+  love.graphics.setCanvas(canvas)
+  love.graphics.clear(0, 0, 0, 0)
+  love.graphics.setColor(1, 1, 1, 1)
+
+  for i = 1, #(ground or {}) do
+    local c = ground[i]
+    local ids = idsFor(map, c.x, c.y)
+    if ids then drawIds(r, ids, c.x * CELL, c.y * CELL) end
+  end
+
+  love.graphics.setCanvas()
+  love.graphics.pop()
+  host.atlasGroundCache[key] = canvas
+  host.lastMaterialBuilds = (host.lastMaterialBuilds or 0) + 1
+  return canvas
+end
+
 function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   local r = rendererFor(map)
   if not r or not AtlasSource.available(map) then return nil end
@@ -116,7 +164,6 @@ function AtlasSource.regionTexture(host, map, x0, y0, x1, y1)
   love.graphics.setCanvas(canvas)
   love.graphics.clear(0, 0, 0, 0)
   love.graphics.setColor(1, 1, 1, 1)
-  local x, y
   for y = y0, y1 do
     for x = x0, x1 do
       local ids = idsFor(map, x, y)
@@ -189,14 +236,22 @@ end
 
 function AtlasSource.invalidate(host)
   if not host then return end
-  local caches = { host.atlasCellCache, host.atlasRegionCache, host.atlasBlockCache }
+  local caches = {
+    host.atlasCellCache,
+    host.atlasGroundCache,
+    host.atlasRegionCache,
+    host.atlasBlockCache,
+  }
   for i = 1, #caches do
     local cache = caches[i]
     if cache then
       for _, canvas in pairs(cache) do safeRelease(canvas) end
     end
   end
-  host.atlasCellCache, host.atlasRegionCache, host.atlasBlockCache = nil, nil, nil
+  host.atlasCellCache = nil
+  host.atlasGroundCache = nil
+  host.atlasRegionCache = nil
+  host.atlasBlockCache = nil
 end
 
 AtlasSource.TREE_WALL_BLOCK = TREE_WALL_BLOCK
