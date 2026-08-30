@@ -4,6 +4,7 @@ local RedProfile = dofile(root .. "/packages/kanto_rework_building_first/buildin
 local RivalProfile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletRivalHouse.lua")
 local OakProfile = dofile(root .. "/packages/kanto_rework_building_first/building/PalletOakLab.lua")
 local Builder = dofile(root .. "/packages/kanto_rework_building_first/building/SemanticSceneBuilder.lua")
+local WorldScene = dofile(root .. "/packages/kanto_rework_building_first/building/WorldScene.lua")
 local Projection = dofile(root .. "/packages/kanto_rework_building_first/building/SceneProjection.lua")
 local AtlasSource = dofile(root .. "/packages/kanto_rework_building_first/building/AtlasSource.lua")
 local Renderer = dofile(root .. "/packages/kanto_rework_building_first/building/BuildingRenderer.lua")
@@ -12,6 +13,9 @@ local function tileColor(id, x, y)
   if id == 1 then
     local c = ((x + y) % 4 == 0) and 0.68 or 0.76
     return c, c, c, 1
+  elseif id == 2 then
+    local c = ((x + y) % 4 == 0) and 0.38 or 0.52
+    return c * 0.72, c, c * 0.70, 1
   elseif id >= 20 and id <= 23 then
     local stripe = ((x + y + id) % 5) < 2
     local c = stripe and 0.22 or 0.42
@@ -66,6 +70,26 @@ local function makeAtlas()
   return image, quads
 end
 
+local function installSyntheticBorderFill(renderer)
+  function renderer:drawBorderFill(camX, camY, vw, vh)
+    love.graphics.setColor(0.14, 0.28, 0.12, 1)
+    love.graphics.rectangle("fill", 0, 0, vw, vh)
+    love.graphics.setColor(0.20, 0.38, 0.16, 1)
+    local block = 32
+    local startX = -((camX or 0) % block)
+    local startY = -((camY or 0) % block)
+    for y = startY, vh, block do
+      for x = startX, vw, block do
+        if (math.floor((x + (camX or 0)) / block)
+            + math.floor((y + (camY or 0)) / block)) % 2 == 0 then
+          love.graphics.rectangle("fill", x, y, block, block)
+        end
+      end
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+end
+
 local function makeMap()
   local image, quads = makeAtlas()
   local map = {
@@ -73,6 +97,7 @@ local function makeMap()
     widthCells = 20, heightCells = 18,
     renderer = { image = image, quads = quads },
   }
+  installSyntheticBorderFill(map.renderer)
   function map:warpAtCell(x, y)
     if x == 5 and y == 5 then return { def = { destMap = "REDS_HOUSE_1F", destWarp = 1 } } end
     if x == 13 and y == 5 then return { def = { destMap = "BLUES_HOUSE", destWarp = 1 } } end
@@ -102,6 +127,17 @@ local function makeMap()
     end
     return 1
   end
+  return map
+end
+
+local function makeRoute1(renderer)
+  local map = {
+    id = "ROUTE_1", def = { tileset = "OVERWORLD" },
+    widthCells = 20, heightCells = 36,
+    renderer = renderer,
+  }
+  function map:warpAtCell() return nil end
+  function map:tileAt() return 2 end
   return map
 end
 
@@ -142,7 +178,7 @@ function love.load()
   local map = makeMap()
   local actor = makeActor()
   local builder = Builder.new({ RedProfile, RivalProfile, OakProfile })
-  local renderer = Renderer.new(Projection, AtlasSource, builder)
+  local renderer = Renderer.new(Projection, AtlasSource, builder, WorldScene)
   renderer:update(0, 1)
   local state = { map = map, neighbors = {}, entities = { actor }, ghosts = {}, player = actor }
   local ctx = {
@@ -175,13 +211,31 @@ function love.load()
     assert(metrics.buildings == 3, "building count changed")
     assert(metrics.semanticBuilds == 1, "scene cache regressed")
     assert(metrics.groundCells == 304, "semantic footprint mask regressed")
+    assert(metrics.worldScenes == 1, "unexpected connected-map count")
+    assert(metrics.fillActive == true, "world border filling missing")
   end
   assert(townMetrics.materialBuilds == redMetrics.materialBuilds
          and redMetrics.materialBuilds == rivalMetrics.materialBuilds
          and rivalMetrics.materialBuilds == oakMetrics.materialBuilds,
          "material cache regressed")
-  print(("BUILDING_FIRST_LOVE_OK semantic=%d materials=%d buildings=%d ground=%d drawCalls=%d")
-    :format(oakMetrics.semanticBuilds, oakMetrics.materialBuilds,
-            oakMetrics.buildings, oakMetrics.groundCells, oakMetrics.drawCalls))
+
+  -- Put Route 1 immediately north of Pallet in world coordinates. This is
+  -- the same representation Gen1Recomp exposes through state.neighbors:
+  -- map + pixel offset, with no renderer-side topology guessing.
+  local route1 = makeRoute1(map.renderer)
+  state.neighbors = { { map = route1, ox = 0, oy = -36 * 16 } }
+  actor.px, actor.py = 10 * 16, 1 * 16
+  local connected = assert(renderer:drawWorld(ctx), "connected Pallet/Route 1 render missing")
+  saveCanvas(connected, "building-first-raw-connected.png")
+  local connectedMetrics = renderer:metrics()
+  assert(connectedMetrics.worldScenes == 2, "Route 1 neighbor missing")
+  assert(connectedMetrics.groundCells == 304 + 20 * 36, "Route 1 ground clipped")
+  assert(connectedMetrics.fillActive == true, "connected-world filling missing")
+
+  print(("BUILDING_FIRST_LOVE_OK semantic=%d materials=%d buildings=%d ground=%d scenes=%d fill=%s drawCalls=%d")
+    :format(connectedMetrics.semanticBuilds, connectedMetrics.materialBuilds,
+            connectedMetrics.buildings, connectedMetrics.groundCells,
+            connectedMetrics.worldScenes, tostring(connectedMetrics.fillActive),
+            connectedMetrics.drawCalls))
   love.event.quit()
 end
