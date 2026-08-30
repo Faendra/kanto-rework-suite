@@ -17,31 +17,33 @@ function PalletRivalHouse.detect(map)
     return nil
   end
 
-  -- Pokemon Red source ground truth:
-  -- PalletTown.blk uses the same 2x2 block house motif for the rival's house
-  -- at blocks x=6..7, y=1..2. That maps to gameplay cells x=12..15,
-  -- y=2..5, with the canonical BLUES_HOUSE warp at cell (13,5).
   return {
     kind = "building",
     semantic = "HOUSE",
     family = "PALLET_HOUSE",
     id = "PALLET_RIVAL_HOUSE",
     mapId = "PALLET_TOWN",
-    footprint = { x0 = 12, y0 = 2, x1 = 16, y1 = 6 },
+    groundClaim = { x0 = 12, y0 = 2, x1 = 16, y1 = 6 },
+    footprint = { x0 = 12, y0 = 5, x1 = 16, y1 = 6 },
     door = { x = 13, y = 5, width = 1 },
     architecture = {
       wallHeight = 1.36,
-      roofStyle = "gable",
+      roofStyle = "hip",
       roofPeak = 2.34,
       roofThickness = 0.14,
       roofOverhang = 0.18,
-      ridgeY = 4.0,
+      ridgeY = 5.5,
+      ridgeInsetX = 1.0,
       doorHeight = 0.92,
       shadowInset = 0.04,
-      roofUV = { 0, 0.50, 1, 0.50, 1, 1, 0, 1 },
+      roofUV = { 0, 0, 1, 0, 1, 0.75, 0, 0.75 },
+      fasciaUV = { 0, 0.75, 1, 0.75, 1, 1, 0, 1 },
+      roofSideUV = { 0, 0, 1, 0, 1, 1, 0, 1 },
     },
     materials = {
-      roof = { x0 = 12, y0 = 2, x1 = 15, y1 = 3 },
+      roof = { x0 = 13, y0 = 3, x1 = 14, y1 = 3 },
+      roofLeft = { x0 = 12, y0 = 3, x1 = 12, y1 = 3 },
+      roofRight = { x0 = 15, y0 = 3, x1 = 15, y1 = 3 },
       facade = { x0 = 12, y0 = 4, x1 = 15, y1 = 5 },
       side = { x0 = 15, y0 = 4, x1 = 15, y1 = 5 },
       door = { x = 13, y = 5 },
