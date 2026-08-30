@@ -13,6 +13,12 @@ local function eq(actual, expected, label)
   end
 end
 
+local function covers(outer, inner)
+  return outer and inner
+     and outer.x0 <= inner.x0 and outer.y0 <= inner.y0
+     and outer.x1 >= inner.x1 and outer.y1 >= inner.y1
+end
+
 local image = {}
 local map = {
   id = "PALLET_TOWN",
@@ -42,23 +48,34 @@ eq(red.architecture.roofStyle, "hip", "Red roof style")
 eq(rival.architecture.roofStyle, "hip", "Rival roof style")
 eq(oak.architecture.roofStyle, "hip", "Oak roof style")
 
--- Physical footprints encode actual ground depth. The larger groundClaim is
--- the source sprite rectangle suppressed from the flat vanilla pass.
-eq(red.footprint.x0, 4, "Red footprint x0")
-eq(red.footprint.y0, 5, "Red physical footprint y0")
-eq(red.footprint.x1, 8, "Red footprint x1 boundary")
-eq(red.footprint.y1, 6, "Red footprint y1 boundary")
-eq(red.groundClaim.y0, 2, "Red vanilla claim y0")
-eq(rival.footprint.x0, 12, "Rival footprint x0")
-eq(rival.footprint.y0, 5, "Rival physical footprint y0")
-eq(rival.footprint.x1, 16, "Rival footprint x1 boundary")
-eq(rival.footprint.y1, 6, "Rival footprint y1 boundary")
-eq(rival.groundClaim.y0, 2, "Rival vanilla claim y0")
-eq(oak.footprint.x0, 10, "Oak footprint x0")
-eq(oak.footprint.y0, 10, "Oak physical footprint y0")
-eq(oak.footprint.x1, 16, "Oak footprint x1 boundary")
-eq(oak.footprint.y1, 12, "Oak footprint y1 boundary")
-eq(oak.groundClaim.y0, 8, "Oak vanilla claim y0")
+-- ARCHITECTURE-VOLUME-01: source projection masking, authored architecture
+-- and visual occlusion are separate concepts. For the three Pallet buildings,
+-- the observed masked depth is fully occupied by the reconstructed volume so
+-- no sky/clear-canvas strip can survive behind the model.
+for _, row in ipairs({
+  { red, "Red", 4, 2, 8, 6 },
+  { rival, "Rival", 12, 2, 16, 6 },
+  { oak, "Oak", 10, 8, 16, 12 },
+}) do
+  local b, label = row[1], row[2]
+  eq(b.groundClaim.x0, row[3], label .. " groundClaim x0")
+  eq(b.groundClaim.y0, row[4], label .. " groundClaim y0")
+  eq(b.groundClaim.x1, row[5], label .. " groundClaim x1")
+  eq(b.groundClaim.y1, row[6], label .. " groundClaim y1")
+  assert(b.architecture and b.architecture.footprint, label .. " architecture footprint missing")
+  assert(b.occlusion and b.occlusion.footprint, label .. " occlusion footprint missing")
+  assert(covers(b.architecture.footprint, b.groundClaim),
+         label .. " architecture leaves part of masked vanilla projection uncovered")
+  assert(covers(b.occlusion.footprint, b.architecture.footprint),
+         label .. " occlusion volume does not cover architecture")
+  eq(b.footprint, b.architecture.footprint,
+     label .. " renderer compatibility footprint must alias authored architecture")
+  eq(b.architecture.depth, 4.0, label .. " authored depth")
+end
+
+eq(red.architecture.ridgeY, 4.0, "Red centered ridge")
+eq(rival.architecture.ridgeY, 4.0, "Rival centered ridge")
+eq(oak.architecture.ridgeY, 10.0, "Oak centered ridge")
 eq(oak.door.x, 12, "Oak door x")
 eq(oak.door.y, 11, "Oak door y")
 eq(red.architecture.ridgeInsetX, 1.0, "Red hip ridge inset")
@@ -154,5 +171,5 @@ for _, forbidden in ipairs({
   assert(not source:find(forbidden, 1, true), "building-first renderer imports forbidden historical layer: " .. forbidden)
 end
 
-print(("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 envelopeTrees=%d connectedTrees=%d")
+print(("BUILDING_FIRST_SEMANTIC_OK buildings=3 ground=304 depth=4 envelopeTrees=%d connectedTrees=%d")
   :format(#envelope.trees, #connectedEnvelope.trees))
