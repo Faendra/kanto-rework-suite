@@ -75,6 +75,19 @@ local function regionTexture(source, host, map, region)
   return source.regionTexture(host, map, region.x0, region.y0, region.x1, region.y1)
 end
 
+local function releasePrepared(prepared)
+  if not prepared then return end
+  for _, surface in ipairs(prepared.groundSurfaces or {}) do
+    release(surface.mesh)
+    surface.mesh = nil
+  end
+end
+
+local function appendGroundVertex(surface, wx, wy, u, v)
+  surface.layout[#surface.layout + 1] = { x = wx, y = wy, u = u, v = v }
+  surface.vertices[#surface.vertices + 1] = { 0, 0, u, v, 1, 1, 1, 1 }
+end
+
 function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene, WorldEnvelope)
   return setmetatable({
     Projection = assert(Projection),
@@ -91,6 +104,7 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene,
     preparedKey = nil,
     prepared = nil,
     atlasCellCache = {},
+    atlasGroundCache = {},
     atlasRegionCache = {},
     atlasBlockCache = {},
     resourceIdentityReady = false,
@@ -107,6 +121,7 @@ function BuildingRenderer.new(Projection, AtlasSource, SceneBuilder, WorldScene,
     resourceResets = 0,
     lastMaterialBuilds = 0,
     lastGroundCells = 0,
+    lastGroundSurfaces = 0,
     lastActors = 0,
     lastBuildings = 0,
     lastWorldScenes = 0,
@@ -128,6 +143,7 @@ function BuildingRenderer:update(_, level)
 end
 
 function BuildingRenderer:dropTransientResources()
+  releasePrepared(self.prepared)
   release(self.mesh)
   release(self.output)
   release(self.treeKeyShader)
@@ -226,6 +242,48 @@ function BuildingRenderer:drawFace(proj, texture, points, color, uv)
   return true
 end
 
+function BuildingRenderer:createGroundSurface(world, scene)
+  local map = world and world.map
+  local w = math.max(1, math.floor(tonumber(map and map.widthCells) or 1))
+  local h = math.max(1, math.floor(tonumber(map and map.heightCells) or 1))
+  local ox, oy = tonumber(world and world.cx) or 0, tonumber(world and world.cy) or 0
+  local texture = self.AtlasSource.groundSurfaceTexture(self, map, scene and scene.ground or {})
+  if not texture then return nil end
+
+  local surface = {
+    map = map,
+    ox = ox,
+    oy = oy,
+    width = w,
+    height = h,
+    texture = texture,
+    cellCount = #(scene and scene.ground or {}),
+    layout = {},
+    vertices = {},
+    mesh = nil,
+  }
+
+  for i = 1, #(scene and scene.ground or {}) do
+    local c = scene.ground[i]
+    local x0, y0 = c.x + ox, c.y + oy
+    local x1, y1 = x0 + 1, y0 + 1
+    local u0, v0 = c.x / w, c.y / h
+    local u1, v1 = (c.x + 1) / w, (c.y + 1) / h
+
+    appendGroundVertex(surface, x0, y0, u0, v0)
+    appendGroundVertex(surface, x1, y0, u1, v0)
+    appendGroundVertex(surface, x1, y1, u1, v1)
+    appendGroundVertex(surface, x0, y0, u0, v0)
+    appendGroundVertex(surface, x1, y1, u1, v1)
+    appendGroundVertex(surface, x0, y1, u0, v1)
+  end
+
+  if #surface.vertices == 0 then return nil end
+  surface.mesh = love.graphics.newMesh(surface.vertices, "triangles", "dynamic")
+  if surface.mesh.setTexture then surface.mesh:setTexture(texture) end
+  return surface
+end
+
 function BuildingRenderer:prepareScene(state)
   local worldKey = self.WorldScene.identity(state)
   if self.prepared and self.preparedKey == worldKey then return self.prepared end
@@ -234,22 +292,18 @@ function BuildingRenderer:prepareScene(state)
   local prepared = {
     worldKey = worldKey,
     worldScenes = worldScenes,
-    ground = {},
+    groundSurfaces = {},
+    groundCellCount = 0,
     buildings = {},
   }
 
   for _, world in ipairs(worldScenes) do
     local scene = self.SceneBuilder:build(world.map)
     if scene then
-      for i = 1, #scene.ground do
-        local cell = scene.ground[i]
-        prepared.ground[#prepared.ground + 1] = {
-          x = cell.x + world.cx,
-          y = cell.y + world.cy,
-          z = cell.z,
-          texture = self.AtlasSource.cellTexture(self, world.map, cell.x, cell.y),
-        }
-      end
+      prepared.groundCellCount = prepared.groundCellCount + #scene.ground
+      local surface = self:createGroundSurface(world, scene)
+      if surface then prepared.groundSurfaces[#prepared.groundSurfaces + 1] = surface end
+
       for i = 1, #scene.buildings do
         local b = scene.buildings[i]
         local m = b.materials
@@ -295,13 +349,23 @@ function BuildingRenderer:drawEnvelopeFloor(proj, prepared)
 end
 
 function BuildingRenderer:drawGround(proj, prepared)
-  for i = 1, #prepared.ground do
-    local c = prepared.ground[i]
-    self:drawFace(proj, c.texture, {
-      { c.x, c.y, 0 }, { c.x + 1, c.y, 0 },
-      { c.x + 1, c.y + 1, 0 }, { c.x, c.y + 1, 0 },
-    }, c.texture and COLORS.pixel or COLORS.ground)
-    self.lastGroundCells = self.lastGroundCells + 1
+  self.lastGroundCells = prepared.groundCellCount or 0
+  for i = 1, #(prepared.groundSurfaces or {}) do
+    local surface = prepared.groundSurfaces[i]
+    if surface.mesh and surface.texture then
+      for j = 1, #surface.layout do
+        local ref = surface.layout[j]
+        local sx, sy = proj:cell(ref.x, ref.y, 0)
+        local v = surface.vertices[j]
+        v[1], v[2] = sx, sy
+      end
+      surface.mesh:setVertices(surface.vertices)
+      if surface.mesh.setTexture then surface.mesh:setTexture(surface.texture) end
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.draw(surface.mesh)
+      self.lastGroundSurfaces = self.lastGroundSurfaces + 1
+      self.lastDrawCalls = self.lastDrawCalls + 1
+    end
   end
 end
 
@@ -415,11 +479,6 @@ function BuildingRenderer:drawBuilding(proj, pb)
   self.lastBuildings = self.lastBuildings + 1
 end
 
--- Tree canopies follow the same HD-2D rule as actors: a semantic world
--- position plus a screen-upright sprite, scaled by local perspective. Trees
--- substantially closer than the camera target are culled: the perspective
--- camera itself can sit outside the gameplay rectangle, and the visual-only
--- envelope must never become foreground geometry between camera and world.
 function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   if not (texture and tree) then return false end
   local x, y, z = tree.x, tree.y, tree.z or 0
@@ -456,9 +515,7 @@ function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   end
   love.graphics.setColor(1, 1, 1, 1)
   love.graphics.draw(texture, sx, sy, 0, scale, scale, tw * 0.5, th)
-  if type(love.graphics.setShader) == "function" then
-    love.graphics.setShader()
-  end
+  if type(love.graphics.setShader) == "function" then love.graphics.setShader() end
 
   self.lastEnvelopeTrees = self.lastEnvelopeTrees + 1
   self.lastDrawCalls = self.lastDrawCalls + 1
@@ -581,6 +638,7 @@ function BuildingRenderer:drawWorld(ctx)
   self:syncResourceIdentity(ctx, ctx.state)
   self:ensureResources(ctx)
   self.lastGroundCells = 0
+  self.lastGroundSurfaces = 0
   self.lastActors = 0
   self.lastBuildings = 0
   self.lastDrawCalls = 0
@@ -599,8 +657,6 @@ function BuildingRenderer:drawWorld(ctx)
   rgba(COLORS.sky)
   love.graphics.rectangle("fill", 0, 0, self.outputW, self.outputH)
 
-  -- Visual-only forest floor first, then authoritative gameplay terrain.
-  -- The floor spans never overlap a map rectangle by construction.
   self:drawEnvelopeFloor(proj, prepared)
   self:drawGround(proj, prepared)
   self:drawObjects(ctx, proj, prepared)
@@ -620,6 +676,7 @@ function BuildingRenderer:metrics()
     materialBuilds = self.lastMaterialBuilds,
     resourceResets = self.resourceResets,
     groundCells = self.lastGroundCells,
+    groundSurfaces = self.lastGroundSurfaces,
     buildings = self.lastBuildings,
     actors = self.lastActors,
     worldScenes = self.lastWorldScenes,
