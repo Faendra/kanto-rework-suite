@@ -397,32 +397,43 @@ function BuildingRenderer:drawBuilding(proj, pb)
   self.lastBuildings = self.lastBuildings + 1
 end
 
--- Dense crossed foliage cards are the first semantic envelope primitive.
--- The vanilla tree-wall pixels provide material identity, while size,
--- placement and depth are authored by WorldEnvelope. This is intentionally
--- the same hybrid principle used for actor billboards: 2D art living in a
--- real 3D scene, not pixel-driven voxel geometry.
+-- Tree canopies follow the same HD-2D rule as actors: a semantic world
+-- position plus a screen-upright sprite, scaled by local perspective. The
+-- source pixels define appearance only; they never define world geometry.
 function BuildingRenderer:drawTreeCluster(proj, texture, tree)
   if not (texture and tree) then return false end
-  local x, y = tree.x, tree.y
-  local z = tree.z or 0
-  local half = (tree.width or 1.85) * 0.5
-  local h = tree.height or 3.15
+  local x, y, z = tree.x, tree.y, tree.z or 0
+  local _, _, cameraDepth = proj:cameraCoordinates(x, y, z)
+  if cameraDepth <= proj.near then return false end
+
+  local sx, sy = proj:cell(x, y, z)
+  local bx, by = proj:cell(x + 1, y, z)
+  local cx, cy = proj:cell(x, y + 1, z)
+  local basisX = math.sqrt((bx - sx) * (bx - sx) + (by - sy) * (by - sy))
+  local basisY = math.sqrt((cx - sx) * (cx - sx) + (cy - sy) * (cy - sy))
+  local localCellPx = (basisX + basisY) * 0.5
+  if not finite(localCellPx) or localCellPx <= 0 then return false end
+
+  local tw, th = CELL, CELL
+  if type(texture.getDimensions) == "function" then
+    local ok, w, h = pcall(texture.getDimensions, texture)
+    if ok and finite(w) and finite(h) and w > 0 and h > 0 then tw, th = w, h end
+  end
+  local scale = localCellPx * (tree.width or 1.68) / tw
+  local drawW, drawH = tw * scale, th * scale
+  local margin = math.max(drawW, drawH) * 1.25
+  if sx < -margin or sx > self.outputW + margin
+     or sy < -margin or sy > self.outputH + margin then return false end
 
   if self.treeKeyShader and type(love.graphics.setShader) == "function" then
     love.graphics.setShader(self.treeKeyShader)
   end
-  self:drawFace(proj, texture, {
-    { x - half, y, z }, { x + half, y, z },
-    { x + half, y, z + h }, { x - half, y, z + h },
-  }, COLORS.pixel, VERTICAL_UV)
-  self:drawFace(proj, texture, {
-    { x, y - half * 0.70, z }, { x, y + half * 0.70, z },
-    { x, y + half * 0.70, z + h }, { x, y - half * 0.70, z + h },
-  }, COLORS.pixel, VERTICAL_UV)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(texture, sx, sy, 0, scale, scale, tw * 0.5, th)
   if type(love.graphics.setShader) == "function" then love.graphics.setShader() end
 
   self.lastEnvelopeTrees = self.lastEnvelopeTrees + 1
+  self.lastDrawCalls = self.lastDrawCalls + 1
   return true
 end
 
